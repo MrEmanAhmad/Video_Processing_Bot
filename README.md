@@ -1,27 +1,28 @@
-# Twitter Video Processing Bot
+# Twitter Video Processing Bot 🎬
 
-A Telegram bot that processes Twitter/X videos by adding professional narration, optimizing video format, and enhancing the overall presentation.
+A Telegram bot that enhances Twitter/X videos with AI-powered narration, professional formatting, and engaging comments.
 
-## Features
+## Features ✨
 
-- Downloads videos from Twitter/X posts
-- Adds AI-generated narration using Google Cloud Text-to-Speech
-- Optimizes video format for social media (9:16 aspect ratio)
-- Adds white frame padding for professional look
-- Balances audio between original and narration tracks
-- Generates engaging comments using AI
-- Supports custom watermarks
+- 🎥 Downloads videos from Twitter/X posts
+- 🗣️ Adds AI-generated narration using Google Cloud Text-to-Speech
+- 📱 Optimizes video format for social media (9:16 aspect ratio)
+- 🎨 Adds professional white frame padding
+- 🎵 Balances audio between original and narration tracks
+- 💡 Generates engaging comments using AI
+- 🏷️ Supports custom watermarks
 
-## Requirements
+## Requirements 📋
 
 - Python 3.8+
 - FFmpeg
 - Google Cloud Text-to-Speech API credentials
 - OpenAI API key
+- DeepSeek API key
 - Cloudinary account
 - Telegram Bot token
 
-## Installation
+## Installation 🚀
 
 1. Clone the repository:
 ```bash
@@ -35,17 +36,44 @@ pip install -r requirements.txt
 ```
 
 3. Set up environment variables in `.env` file:
-```
+```env
+# Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+
+# OpenAI Configuration
 OPENAI_API_KEY=your_openai_api_key
+
+# DeepSeek Configuration
 DEEPSEEK_API_KEY=your_deepseek_api_key
+
+# Cloudinary Configuration
 CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
 CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
-GOOGLE_APPLICATION_CREDENTIALS=path_to_your_google_credentials.json
+
+# Google Cloud Configuration
+GOOGLE_APPLICATION_CREDENTIALS_JSON=your_google_credentials_json_string
+
+# Logging Configuration
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
 ```
 
-## Usage
+## Docker Deployment 🐳
+
+1. Build the Docker image:
+```bash
+docker build -t twitter-video-bot .
+```
+
+2. Run the container:
+```bash
+docker run -d \
+  --name twitter-video-bot \
+  --env-file .env \
+  twitter-video-bot
+```
+
+## Usage 📱
 
 1. Start a chat with your bot on Telegram
 2. Send a Twitter/X video URL
@@ -57,239 +85,118 @@ GOOGLE_APPLICATION_CREDENTIALS=path_to_your_google_credentials.json
 - `/process <tweet_url>` - Process a specific tweet URL
 - `/watermark <text>` - Set custom watermark for your videos
 
-## Contributing
+### Example
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+```
+https://x.com/username/status/123456789
+```
 
-## License
-
-[MIT](https://choosealicense.com/licenses/mit/)
-
-## Project Structure
+## Project Structure 📁
 
 ```
 project_root/
 ├── main.py              # Main bot implementation
-├── test_processor.py    # Test suite
 ├── requirements.txt     # Python dependencies
-├── .env                # Environment variables
-├── test_outputs/       # Generated test videos
-└── SF-Pro-Display-Regular.ttf  # Font file for text overlay
+├── .env                # Environment variables (not in git)
+├── Dockerfile          # Docker configuration
+├── .dockerignore       # Docker ignore rules
+├── .gitignore          # Git ignore rules
+└── README.md           # Documentation
 ```
 
-## Environment Variables
+## Environment Variables 🔐
 
 Create a `.env` file with the following variables:
 
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-OPENAI_API_KEY=your_openai_api_key
-DEEPSEEK_API_KEY=your_deepseek_api_key
-CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
-CLOUDINARY_API_KEY=your_cloudinary_api_key
-CLOUDINARY_API_SECRET=your_cloudinary_api_secret
-GOOGLE_APPLICATION_CREDENTIALS=path_to_your_google_credentials.json
-LOG_LEVEL=INFO  # Logging level (DEBUG, INFO, WARNING, ERROR)
-```
+### Required Variables
+- `TELEGRAM_BOT_TOKEN`: Your Telegram bot token from @BotFather
+- `OPENAI_API_KEY`: OpenAI API key for content analysis
+- `DEEPSEEK_API_KEY`: DeepSeek API key for comment generation
+- `CLOUDINARY_CLOUD_NAME`: Cloudinary cloud name
+- `CLOUDINARY_API_KEY`: Cloudinary API key
+- `CLOUDINARY_API_SECRET`: Cloudinary API secret
+- `GOOGLE_APPLICATION_CREDENTIALS_JSON`: Google Cloud service account credentials JSON string
 
-## Dependencies
+### Optional Variables
+- `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR)
 
-Install required packages:
+## Dependencies 📦
 
-```bash
-pip install -r requirements.txt
-```
+Key dependencies and their purposes:
+- `python-telegram-bot`: Telegram bot framework
+- `yt-dlp`: Video downloading
+- `ffmpeg-python`: Video processing
+- `cloudinary`: Cloud media management
+- `google-cloud-texttospeech`: Text-to-speech conversion
+- `openai`: AI content analysis
+- `python-dotenv`: Environment variable management
+- `emoji`: Emoji handling
 
-Key dependencies:
-- python-telegram-bot
-- yt-dlp
-- ffmpeg-python
-- cloudinary
-- google-cloud-texttospeech
-- openai
-- python-dotenv
-- emoji
+## Video Processing Pipeline 🔄
 
-## Class Structure
+1. **Download**: Extract video and metadata from tweet
+2. **Frame Extraction**: Capture representative frame
+3. **Content Analysis**: Analyze video content using AI
+4. **Comment Generation**: Create engaging narration
+5. **Speech Generation**: Convert comment to audio
+6. **Video Enhancement**: 
+   - Add padding for 9:16 aspect ratio
+   - Add white frame
+   - Mix audio tracks
+   - Apply watermark
 
-### TwitterVideoProcessor
+## Error Handling 🛠️
 
-Main class handling video processing pipeline.
+The bot includes robust error handling for:
+- Invalid URLs
+- Download failures
+- API errors
+- Processing timeouts
+- Resource cleanup
 
-#### Instance Variables
-
-```python
-self.temp_dir                 # Temporary directory for processing
-self.openai_client           # OpenAI API client
-self.deepseek_client         # DeepSeek API client
-self.context                 # Processing context dictionary
-self.loading_animations      # Animation frames dictionary
-```
-
-#### Context Dictionary Structure
-
-```python
-context = {
-    "temp_dir": str,              # Temporary directory path
-    "cloudinary_resources": list, # List of Cloudinary resource IDs
-    "error": str,                # Error message if any
-    "stage": str,               # Current processing stage
-    "watermark": str,          # Watermark text
-    "cloudinary_resources_tracked": set,  # Set of tracked resources
-    "video_path": str,        # Downloaded video path
-    "frame_path": str,       # Extracted frame path
-    "frame_url": str,       # Cloudinary frame URL
-    "tweet_text": str,     # Original tweet text
-    "comment": str,       # Generated comment
-    "audio_path": str,   # Generated audio path
-    "output_video_path": str  # Final video path
-}
-```
-
-## Key Methods
-
-### Video Processing Pipeline
-
-1. `download_tweet(url: str, message_obj) -> bool`
-   - Downloads tweet video using yt-dlp
-   - Returns success status
-
-2. `extract_frame(message_obj) -> bool`
-   - Extracts representative frame using FFmpeg
-   - Frame saved as "frame.jpg"
-
-3. `upload_to_cloudinary(message_obj) -> bool`
-   - Uploads frame to Cloudinary
-   - Tracks resource for cleanup
-
-4. `analyze_content(message_obj) -> bool`
-   - Uses OpenAI Vision API for frame analysis
-   - Uses DeepSeek API for comment generation
-   - 60-second timeout
-
-5. `generate_speech(message_obj) -> bool`
-   - Converts comment to speech using Google Cloud TTS
-   - 30-second timeout
-   - Output: "narration.mp3"
-
-6. `merge_audio_video(message_obj) -> bool`
-   - Adds padding and white frame
-   - Mixes audio streams (video: 30%, narration: 100%)
-   - 5-minute timeout
-
-### Helper Methods
-
-1. `clean_text_for_narration(text: str) -> str`
-   - Removes hashtags, emojis, numbers
-   - Cleans punctuation and spacing
-
-2. `verify_video_format(video_path: str) -> dict`
-   - Checks video dimensions and ratio
-   - Verifies frame presence
-
-3. `track_cloudinary_resource(resource_id: str, resource_type: str = "image")`
-   - Tracks Cloudinary resources for cleanup
-
-4. `verify_cloudinary_cleanup() -> bool`
-   - Verifies all resources are cleaned up
-
-5. `save_output_video() -> str`
-   - Saves to test_outputs/YYYYMMDD_HHMMSS/final_video.mp4
-
-## Telegram Bot Handlers
-
-1. `process_tweet(update: Update, context: ContextTypes.DEFAULT_TYPE)`
-   - Main processing handler
-   - Handles tweet URLs
-
-2. `start(update: Update, context: ContextTypes.DEFAULT_TYPE)`
-   - Welcome message and commands
-
-3. `set_watermark(update: Update, context: ContextTypes.DEFAULT_TYPE)`
-   - Sets custom watermark text
-
-4. `handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE)`
-   - General message handler
-
-## Testing
-
-Run tests using:
-```bash
-python test_processor.py
-```
-
-Test video URL:
-```
-https://x.com/AMAZlNGNATURE/status/1887223066909937941
-```
-
-## FFmpeg Settings
-
-### Video Padding
-```python
-ffmpeg_settings = {
-    'acodec': 'copy',
-    'vcodec': 'copy',
-    'movflags': '+faststart',
-    'preset': 'ultrafast',
-    'threads': 'auto'
-}
-```
-
-### Audio Mixing
-```python
-audio_settings = {
-    'video_volume': 0.3,     # 30% original audio
-    'narration_volume': 1.0,  # 100% narration
-    'dropout_transition': 0.5
-}
-```
-
-## Error Handling
-
-Error stages:
-- downloading
-- uploading_frame
-- analyzing
-- generating_speech
-- merging
-
-Each stage has specific error messages and cleanup procedures.
-
-## Resource Cleanup
-
-1. Cloudinary resources
-   - Images and videos tracked separately
-   - Verified cleanup with 5-second delay
-
-2. Temporary files
-   - All files in temp_dir removed
-   - Directory removed after processing
-
-## Output Directory Structure
-
-```
-test_outputs/
-└── YYYYMMDD_HHMMSS/
-    └── final_video.mp4
-```
-
-## Timeouts
+## Timeouts ⏱️
 
 - Content Analysis: 60 seconds
 - Speech Generation: 30 seconds
 - Video Processing: 300 seconds (5 minutes)
-- Cloudinary Upload: 60 seconds
+- API Calls: 30 seconds
 
-## Animation Frames
+## Logging 📝
 
-Loading animations for each stage:
-- download
-- analyze
-- speech
-- merge
-- merge_audio
-- final_touch
-- upload
+- Console output with color-coded levels
+- Daily log files with detailed information
+- Separate logs for different components
+- Debug logging for troubleshooting
 
-Each animation has 4 frames updating every 0.5 seconds. 
+## Security 🔒
+
+- Environment variables for sensitive data
+- Temporary file cleanup
+- Resource tracking and verification
+- Secure credential handling
+
+## Contributing 🤝
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License 📄
+
+[MIT](https://choosealicense.com/licenses/mit/)
+
+## Support 💬
+
+For support, contact [@AutomatorByMani](https://t.me/AutomatorByMani) on Telegram.
+
+## Acknowledgments 🙏
+
+- [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [FFmpeg](https://ffmpeg.org/)
+- [Cloudinary](https://cloudinary.com/)
+- [Google Cloud](https://cloud.google.com/)
+- [OpenAI](https://openai.com/)
+- [DeepSeek](https://deepseek.com/) 
