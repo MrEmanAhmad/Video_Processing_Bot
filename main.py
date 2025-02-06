@@ -72,6 +72,19 @@ try:
                 if missing_fields:
                     raise ValueError(f"Missing required fields in credentials: {missing_fields}")
                 
+                # Fix private key formatting
+                private_key = creds_dict['private_key']
+                if not private_key.startswith('-----BEGIN PRIVATE KEY-----\n'):
+                    # Add proper PEM formatting
+                    private_key = private_key.replace('\\n', '\n').strip()
+                    if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+                        private_key = '-----BEGIN PRIVATE KEY-----\n' + private_key
+                    if not private_key.endswith('-----END PRIVATE KEY-----'):
+                        private_key = private_key + '\n-----END PRIVATE KEY-----\n'
+                    creds_dict['private_key'] = private_key
+                
+                logger.info("Private key formatted successfully")
+                
                 credentials = service_account.Credentials.from_service_account_info(creds_dict)
                 tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
                 logger.info("Successfully initialized Google Cloud TTS client with credentials from environment")
@@ -86,6 +99,7 @@ try:
             raise
         except Exception as e:
             logger.error(f"Error creating credentials from JSON: {str(e)}")
+            logger.error("Private key format: " + creds_dict.get('private_key', '')[:50] + "...")
             raise
     else:
         # Fallback to file-based credentials
