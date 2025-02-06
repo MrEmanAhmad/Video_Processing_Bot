@@ -38,6 +38,10 @@ ENV PYTHONUNBUFFERED=1
 ENV TEMP=/tmp
 ENV TMPDIR=/tmp
 
+# Set proxy bypass for metadata server
+ENV no_proxy=169.254.169.254,metadata,metadata.google.internal
+ENV NO_PROXY=169.254.169.254,metadata,metadata.google.internal
+
 # Create directory for Google Cloud credentials
 RUN mkdir -p /app/credentials && \
     chmod 777 /app/credentials
@@ -52,10 +56,28 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
 
 # Create entrypoint script
 RUN echo '#!/bin/bash\n\
-if [ ! -z "$GOOGLE_CREDENTIALS" ]; then\n\
+# Set proxy bypass for metadata server\n\
+export no_proxy=169.254.169.254,metadata,metadata.google.internal\n\
+export NO_PROXY=169.254.169.254,metadata,metadata.google.internal\n\
+\n\
+# Handle credentials\n\
+if [ ! -z "$GOOGLE_APPLICATION_CREDENTIALS_JSON" ]; then\n\
+    echo "$GOOGLE_APPLICATION_CREDENTIALS_JSON" > /app/credentials/google_credentials.json\n\
+    export GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/google_credentials.json\n\
+elif [ ! -z "$GOOGLE_CREDENTIALS" ]; then\n\
     echo "$GOOGLE_CREDENTIALS" > /app/credentials/google_credentials.json\n\
     export GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/google_credentials.json\n\
 fi\n\
+\n\
+# Verify credentials file\n\
+if [ -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then\n\
+    echo "Credentials file created successfully at $GOOGLE_APPLICATION_CREDENTIALS"\n\
+    chmod 600 "$GOOGLE_APPLICATION_CREDENTIALS"\n\
+else\n\
+    echo "Error: Credentials file not created. Please check environment variables."\n\
+    exit 1\n\
+fi\n\
+\n\
 python main.py' > /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh
 
