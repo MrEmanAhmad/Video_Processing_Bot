@@ -11,6 +11,7 @@ import cloudinary.api
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from google.cloud import texttospeech
+from google.oauth2 import service_account
 import openai
 import json
 import subprocess
@@ -41,8 +42,36 @@ cloudinary.config(
 # Initialize OpenAI client
 openai.api_key = os.getenv('OPENAI_API_KEY')
 
-# Initialize Google Cloud TTS client
-tts_client = texttospeech.TextToSpeechClient()
+# Initialize Google Cloud TTS client with explicit credentials
+try:
+    # Try using environment variable directly first
+    creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    if creds_json:
+        try:
+            # Clean up the JSON string by removing escaped newlines and extra backslashes
+            creds_json = creds_json.replace('\\n', '\n').replace('\\\\', '\\')
+            creds_dict = json.loads(creds_json)
+            credentials = service_account.Credentials.from_service_account_info(creds_dict)
+            tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+            logger.info("Successfully initialized Google Cloud TTS client with credentials from environment")
+        except json.JSONDecodeError as je:
+            logger.error(f"Error parsing credentials JSON: {str(je)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error creating credentials from JSON: {str(e)}")
+            raise
+    else:
+        # Fallback to file-based credentials
+        credentials_path = "/app/credentials/google_credentials.json"
+        if os.path.exists(credentials_path):
+            credentials = service_account.Credentials.from_service_account_file(credentials_path)
+            tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+            logger.info("Successfully initialized Google Cloud TTS client with credentials file")
+        else:
+            raise Exception("No Google Cloud credentials found in environment or file system")
+except Exception as e:
+    logger.error(f"Error initializing Google Cloud TTS client: {str(e)}")
+    raise
 
 class TwitterVideoProcessor:
     def __init__(self):
