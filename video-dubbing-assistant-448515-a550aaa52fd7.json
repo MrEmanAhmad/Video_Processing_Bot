@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "video-dubbing-assistant-448515",
+  "private_key_id": "a550aaa52fd7caf86553f6551f32e712a73bf4fb",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCc3MkO5uvwaOgB\nEzvg99x8HmbjPZiYrHmuKcN1LU/gmn9TC4K9PSoAha/RpbgZo6ByKt6oFhw9z6s/\nPlE9cXDS/Vtl5346m9EnDv/2GZojo8IsKY6VgV36t+/AIm0MC1am4GVrY5hC87kD\na2F/GelHaOwm2ox4Sgiq8taxNxCfknIYDWNw9jcCcLyo2Uju4O95rHIf0Ajhl+Nv\nrVW+L9Fus4hjJJNVDQqCSb7TLhiYzqAoTeGsNGxK1aij9zVZk4D7GLUdhjWYWCV0\nOLDtHUKfovkVsRjaAaQvrEqjViR8HOBCeUsGGgeNwjVzbjsJYkcgI0zZDVfkgFxo\nTaBnWdyPAgMBAAECggEAAJjglRNw+4HSvEpP9IvNBZXyC1RtM8uYTP7wtQ3+m1rL\nOEw3a7QDaGwZ3sD0Qfi7ACREo7wt0FhtjPiWQ5ceeFcplWo7s0prkev/MncnfJI/\nh36DAfOzoWQ43/DhnGWgp1L8X9vJtRuLbUVn4h19o111ZLJ5TW3uuYPiKFuOzyS0\njUYjBZaaHvahSEliZlr2Rq8n5Cp3A1zZ15AAg98SQxv12TECgQ3dMG+CQc0T6yAB\nRdNhGtOijUZj5zUUKrVK5W4ujd7RqIopTCbUBWng6bOj+ThJWMPxQeGgr4RW2nbs\nN0dZ6xR1akeImul6fpmlvDr3e2El4Vq7d44UIeMMxQKBgQDbb3RuUVkiTTnuK9Qf\n0lzAVd8iP9ZZh0km38USxno7MKUnnmUtykRc159I0P/wmlGcRnwdnuUYZB5oyfnX\npagmaMrkg111vh9xFyUyCUJpF97/FF0J7cYF0lN1u3hldiWAaOq4jvs+p5jRMrPx\nQbPTO4j+ph8TYzCyjp8L89ZZ2wKBgQC3ACGhyEWm2mhRZT/3nW155EGxBQ+PuNgE\neX5/onVSVnQAKfWTphwNS42IrClQUKas12cgssVyxnRfjxtAKnhUL7kNmUNltHFN\n80OK9F/myWDIYolYO3SKiZXQI91dv+lWaJ9Mw6/558DaTfsGfixQG0oOOn4pT/H2\ngmuxuqMoXQKBgEh8k9iRVMFpA1by8XqlkfATLcdxkQw4DWkjCEXAfMYqtpPU1hV/\nOH/21m5GZBWF1Kmr+voJ8CHTiNwSxE6BMX+mpEdCQdBQQrCn9aiGuIJg2VAn2Ogb\nvItVxC4jBI13rsGxZsAas1IqKOgKOLjcfFut0f5Uv/U2kfKZ/F4FaWx7AoGAdbaT\n66kThJyA9bqXRwPw47M7vk5vEBfqfBZalGc/6FLMEz7qRKtY6ARtajiz6oG2dP+p\nypK0B3w4Zy96a+/lruFzu5eWjtle+LE+BSfkeGOY6czYY/T6phKSV2x6fE9yHK73\nqT1G+Q1mNAZtLmQCxRSIslZVyOUv001ZUN2pDdECgYBmbjFim/wfZ1AFlsdfPFgc\n3TmYCTWGcW14EsbU0Q58L6DQJQKv6SzetHLqYOsWu1N/08kjyIt7gLaMSVkH5o7m\n69XenmVv5bPeK3gEPiMbhgIDc2KZw5tWPJMaxbVv26/55cIpfwG6FYjdgpN5rkeO\nVl/gcEs327kvVQexRQGeCw==\n-----END PRIVATE KEY-----\n",
+  "client_email": "tts-922@video-dubbing-assistant-448515.iam.gserviceaccount.com",
+  "client_id": "102180730689450660419",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/tts-922%40video-dubbing-assistant-448515.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
