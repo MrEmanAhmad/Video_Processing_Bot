@@ -282,74 +282,66 @@ class TwitterVideoProcessor:
                 break
 
     async def download_tweet(self, url: str, message_obj) -> bool:
-        """Download tweet video and metadata using yt-dlp"""
-        self.context["tweet_url"] = url
-        self.context["stage"] = "downloading"
-        animation_task = asyncio.create_task(self.animate_loading(message_obj, 'download'))
-        
+        """Download tweet video and extract metadata."""
         try:
-            await message_obj.edit_text("🎬 Starting video processing...")
-            
-            ydl_opts = {
-                'format': 'best',
-                'outtmpl': os.path.join(self.temp_dir, '%(id)s.%(ext)s'),
-                'extract_flat': True,
-                'extractor_args': {'twitter': {'api': ['graphql']}}
+            self.context["stage"] = "downloading"
+            logger.info("Starting processing...")
+            logger.info("Test 1: Testing tweet download...")
+
+            # Create downloads directory inside temp_dir
+            downloads_dir = os.path.join(self.temp_dir, "downloads")
+            os.makedirs(downloads_dir, exist_ok=True)
+
+            options = {
+                'outtmpl': os.path.join(downloads_dir, '%(id)s.%(ext)s'),
+                'writedescription': True,
+                'writeinfojson': True,
+                'merge_output_format': 'mp4',
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False
             }
-            
+
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    url = url.replace('x.com', 'twitter.com')
-                    info = ydl.extract_info(url, download=False)
-                    
-                    ydl_opts.update({
-                        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                        'extract_flat': False,
-                        'writeinfojson': True,
-                        'writedescription': True
-                    })
-                    
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl_download:
-                        info = ydl_download.extract_info(url, download=True)
-                        video_path = ydl_download.prepare_filename(info)
-                        video_path = os.path.splitext(video_path)[0] + ".mp4"
-                        info_filename = os.path.splitext(video_path)[0] + ".info.json"
-                        
-                        # Update context with downloaded data
-                        self.context.update({
-                            "video_path": video_path,
-                            "video_info": {
-                                "duration": info.get('duration', 0),
-                                "title": info.get('title', ''),
-                                "uploader": info.get('uploader', '')
-                            }
-                        })
-                        
-                        # Extract and store tweet text
-                        tweet_text = info.get('description', '')
-                        if not tweet_text and os.path.exists(info_filename):
-                            try:
-                                with open(info_filename, 'r', encoding='utf-8') as f:
-                                    metadata = json.load(f)
-                                    tweet_text = metadata.get("description", "")
-                            except json.JSONDecodeError:
-                                logger.error("Failed to parse tweet metadata")
-                                self.context["error"] = "Failed to parse tweet metadata"
-                                tweet_text = ""
-                        
-                        self.context["tweet_text"] = tweet_text
-                        animation_task.cancel()
-                        return True
-                        
-            except Exception as e:
-                self.context["error"] = f"Error downloading tweet: {str(e)}"
-                logger.error(f"Error downloading tweet: {e}")
-                raise
-                
+                with yt_dlp.YoutubeDL(options) as ydl:
+                    # Extract info first
+                    info = ydl.extract_info(url, download=True)
+                    video_filename = ydl.prepare_filename(info)
+                    video_filename = os.path.splitext(video_filename)[0] + ".mp4"
+                    info_filename = os.path.splitext(video_filename)[0] + ".info.json"
+
+                    # Extract tweet text if available
+                    tweet_text = ""
+                    if os.path.exists(info_filename):
+                        try:
+                            with open(info_filename, 'r', encoding='utf-8') as f:
+                                metadata = json.load(f)
+                                tweet_text = metadata.get("description", "No text found")
+                        except json.JSONDecodeError:
+                            tweet_text = "Failed to extract tweet text"
+                            logger.warning("Failed to parse tweet metadata JSON")
+
+                    # Store the paths and metadata in context
+                    self.context["video_path"] = video_filename
+                    self.context["tweet_text"] = tweet_text
+                    logger.info(f"Downloaded video: {video_filename}")
+                    logger.info(f"Tweet text: {tweet_text}")
+
+                    return True
+
+            except yt_dlp.utils.DownloadError as e:
+                error_message = str(e)
+                logger.error(f"Error downloading tweet: {error_message}")
+                if "Unable to extract uploader id" in error_message:
+                    await message_obj.edit_text("⚠️ This tweet might be from a private account or has been deleted.")
+                else:
+                    await message_obj.edit_text("⚠️ Failed to download the video. The tweet might be unavailable or protected.")
+                return False
+
         except Exception as e:
-            self.context["error"] = f"Download failed: {str(e)}"
-            animation_task.cancel()
-            raise e
+            logger.error(f"Processing error: {str(e)}", exc_info=True)
+            await message_obj.edit_text("❌ An error occurred while processing the video.")
+            return False
 
     async def extract_frame(self, message_obj) -> bool:
         """Extract a representative frame from the video using FFmpeg"""
