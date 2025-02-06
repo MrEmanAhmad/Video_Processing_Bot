@@ -474,7 +474,7 @@ class TwitterVideoProcessor:
                 logger.info("Testing OpenAI Vision API...")
                 try:
                     vision_response = self.openai_client.chat.completions.create(
-                        model="gpt-4-vision-preview",
+                        model="gpt-4-0125-preview",
                         messages=[
                             {
                                 "role": "system",
@@ -489,7 +489,10 @@ class TwitterVideoProcessor:
                                     },
                                     {
                                         "type": "image_url",
-                                        "image_url": {"url": frame_url}
+                                        "image_url": {
+                                            "url": frame_url,
+                                            "detail": "high"
+                                        }
                                     }
                                 ]
                             }
