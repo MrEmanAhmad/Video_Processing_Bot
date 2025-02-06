@@ -446,10 +446,18 @@ class TwitterVideoProcessor:
         try:
             await message_obj.edit_text("🧠 Analyzing content...")
             
+            # Get video duration using ffprobe
+            try:
+                probe = ffmpeg.probe(self.context["video_path"])
+                video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
+                video_duration = float(video_info.get('duration', 30.0))  # Default to 30 seconds if duration not found
+            except Exception as e:
+                logger.warning(f"Failed to get video duration: {e}, using default")
+                video_duration = 30.0  # Default duration if probe fails
+            
             # Use context data for analysis
             tweet_text = self.context.get("tweet_text", "")
             frame_url = self.context.get("frame_url")
-            video_duration = self.context.get("video_info", {}).get("duration", 0)
             
             if not frame_url:
                 logger.error("No frame URL available for analysis")
@@ -458,7 +466,7 @@ class TwitterVideoProcessor:
             
             # Calculate maximum words based on video duration
             # Average speaking rate is about 150 words per minute or 2.5 words per second
-            max_words = int(min(35, video_duration * 2.5))  # Cap at 35 words
+            max_words = max(15, min(35, int(video_duration * 2.5)))  # Minimum 15 words, maximum 35 words
             logger.info(f"Video duration: {video_duration}s, Maximum words allowed: {max_words}")
             
             try:
@@ -466,7 +474,7 @@ class TwitterVideoProcessor:
                 logger.info("Testing OpenAI Vision API...")
                 try:
                     vision_response = self.openai_client.chat.completions.create(
-                        model="gpt-4-turbo-2024-04-09",
+                        model="gpt-4-vision-preview",
                         messages=[
                             {
                                 "role": "system",
@@ -512,14 +520,15 @@ class TwitterVideoProcessor:
                                 Key rules:
                                 1. Write in a conversational, flowing style
                                 2. No quotes or special characters
-                                3. Keep it under {max_words} words to fit within {video_duration:.1f} seconds
+                                3. Keep it EXACTLY {max_words} words or less
                                 4. Focus on smooth transitions and natural speech
                                 5. Use simple words that are easy to pronounce
-                                6. Avoid complex sentences or technical terms"""
+                                6. Avoid complex sentences or technical terms
+                                7. Make it engaging and shareable"""
                             },
                             {
                                 "role": "user",
-                                "content": f"Based on this analysis:\n\n{frame_analysis}\n\nTweet text: {tweet_text}\n\nGenerate a comment that flows naturally when spoken aloud and fits within {video_duration:.1f} seconds."
+                                "content": f"Based on this analysis:\n\n{frame_analysis}\n\nTweet text: {tweet_text}\n\nGenerate a comment that flows naturally when spoken aloud, MUST be {max_words} words or less, and fits within {video_duration:.1f} seconds."
                             }
                         ],
                         max_tokens=150,
@@ -544,12 +553,13 @@ class TwitterVideoProcessor:
                                 {
                                     "role": "system",
                                     "content": f"""Generate an extremely concise comment.
-                                    CRITICAL: Must be under {max_words} words.
-                                    Be brief but engaging."""
+                                    CRITICAL: Must be EXACTLY {max_words} words or less.
+                                    Be brief but engaging.
+                                    Focus on the most important aspect only."""
                                 },
                                 {
                                     "role": "user",
-                                    "content": f"Create a {max_words}-word comment about: {frame_analysis}"
+                                    "content": f"Create a {max_words}-word or shorter comment about: {frame_analysis}"
                                 }
                             ],
                             max_tokens=100,
