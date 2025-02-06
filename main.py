@@ -25,22 +25,86 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, os.getenv('LOG_LEVEL', 'INFO')),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Configure custom logging format with colors and better structure
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter adding colors to log levels"""
+    
+    grey = "\x1b[38;21m"
+    blue = "\x1b[38;5;39m"
+    yellow = "\x1b[38;5;226m"
+    red = "\x1b[38;5;196m"
+    bold_red = "\x1b[31;1m"
+    reset = "\x1b[0m"
+
+    def __init__(self, fmt):
+        super().__init__()
+        self.fmt = fmt
+        self.FORMATS = {
+            logging.DEBUG: self.grey + self.fmt + self.reset,
+            logging.INFO: self.blue + self.fmt + self.reset,
+            logging.WARNING: self.yellow + self.fmt + self.reset,
+            logging.ERROR: self.red + self.fmt + self.reset,
+            logging.CRITICAL: self.bold_red + self.fmt + self.reset
+        }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+# Configure logging with the custom formatter
+logger = logging.getLogger("TwitterVideoBot")
+logger.setLevel(getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
+
+# Create console handler with custom formatter
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+
+# Create file handler for persistent logging
+log_file = os.path.join('logs', f'bot_{datetime.now().strftime("%Y%m%d")}.log')
+os.makedirs('logs', exist_ok=True)
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(logging.DEBUG)
+
+# Create formatters and add them to the handlers
+console_format = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+file_format = "%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s"
+
+console_handler.setFormatter(ColoredFormatter(console_format))
+file_handler.setFormatter(logging.Formatter(file_format))
+
+# Add handlers to the logger
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
+
+# Suppress other loggers' output
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('telegram').setLevel(logging.WARNING)
+logging.getLogger('asyncio').setLevel(logging.WARNING)
+
+# Log startup information
+logger.info("=== Twitter Video Processing Bot Starting ===")
+logger.info(f"Log file created at: {log_file}")
 
 # Initialize API clients and configurations
-cloudinary.config(
-    cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
-    api_key=os.getenv('CLOUDINARY_API_KEY'),
-    api_secret=os.getenv('CLOUDINARY_API_SECRET')
-)
+try:
+    cloudinary.config(
+        cloud_name=os.getenv('CLOUDINARY_CLOUD_NAME'),
+        api_key=os.getenv('CLOUDINARY_API_KEY'),
+        api_secret=os.getenv('CLOUDINARY_API_SECRET')
+    )
+    logger.info("✓ Cloudinary configuration initialized")
+except Exception as e:
+    logger.error("✗ Failed to initialize Cloudinary configuration", exc_info=True)
+    raise
 
 # Initialize OpenAI client
-openai.api_key = os.getenv('OPENAI_API_KEY')
+try:
+    openai.api_key = os.getenv('OPENAI_API_KEY')
+    logger.info("✓ OpenAI API key configured")
+except Exception as e:
+    logger.error("✗ Failed to configure OpenAI API key", exc_info=True)
+    raise
 
 # Initialize Google Cloud TTS client with explicit credentials
 try:
@@ -48,89 +112,85 @@ try:
     creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if creds_json:
         try:
-            # Debug log the first few characters of the credentials
-            logger.info(f"Credentials string starts with: {creds_json[:50]}...")
+            # Debug log the credentials initialization
+            logger.info("🔄 Initializing Google Cloud credentials from environment variable")
+            logger.debug("Credentials string length: %d characters", len(creds_json))
             
             # Remove any potential wrapping quotes if present
             creds_json = creds_json.strip()
             if creds_json.startswith('"') and creds_json.endswith('"'):
                 creds_json = creds_json[1:-1]
+                logger.debug("Removed wrapping quotes from credentials string")
             
             # First unescape the JSON string
             creds_json = bytes(creds_json, 'utf-8').decode('unicode_escape')
             
-            # Debug log the processed string
-            logger.info("Attempting to parse JSON credentials...")
-            
             try:
                 creds_dict = json.loads(creds_json)
-                logger.info("JSON parsing successful")
+                logger.info("✓ JSON credentials parsed successfully")
                 
                 # Verify required fields
                 required_fields = ['type', 'project_id', 'private_key', 'client_email']
                 missing_fields = [field for field in required_fields if field not in creds_dict]
                 if missing_fields:
                     raise ValueError(f"Missing required fields in credentials: {missing_fields}")
+                logger.debug("All required credential fields present")
                 
                 # Fix private key formatting
                 private_key = creds_dict['private_key']
-                
-                # Remove any existing formatting
-                private_key = private_key.replace('\\n', '\n')  # Replace escaped newlines
+                private_key = private_key.replace('\\n', '\n')
                 private_key = private_key.replace('-----BEGIN PRIVATE KEY-----', '')
                 private_key = private_key.replace('-----END PRIVATE KEY-----', '')
                 private_key = private_key.strip()
                 
-                # Add proper PEM formatting with exact newlines
                 formatted_key = (
                     '-----BEGIN PRIVATE KEY-----\n'
                     f'{private_key}\n'
                     '-----END PRIVATE KEY-----\n'
                 )
                 
-                # Update the credentials dictionary
                 creds_dict['private_key'] = formatted_key
-                
-                logger.info("Private key formatted successfully")
-                logger.info(f"Private key starts with: {formatted_key[:50]}...")
+                logger.info("✓ Private key formatted successfully")
                 
                 # Write credentials to a temporary file
                 temp_creds_file = os.path.join(tempfile.gettempdir(), 'google_credentials_temp.json')
                 with open(temp_creds_file, 'w') as f:
                     json.dump(creds_dict, f)
+                logger.debug(f"Temporary credentials file created at: {temp_creds_file}")
                 
-                # Use file-based credentials (more reliable)
+                # Initialize client with credentials
                 credentials = service_account.Credentials.from_service_account_file(temp_creds_file)
                 tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
                 
                 # Clean up temporary file
                 os.remove(temp_creds_file)
+                logger.debug("Temporary credentials file removed")
                 
-                logger.info("Successfully initialized Google Cloud TTS client with credentials from environment")
+                logger.info("✓ Google Cloud TTS client initialized successfully")
+                
             except json.JSONDecodeError as je:
+                logger.error("✗ Failed to parse JSON credentials")
                 logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
-                logger.error(f"Problematic JSON section: {creds_json[max(0, je.pos-20):min(len(creds_json), je.pos+20)]}")
+                logger.error(f"Problematic section: {creds_json[max(0, je.pos-20):min(len(creds_json), je.pos+20)]}")
                 raise
             
-        except json.JSONDecodeError as je:
-            logger.error(f"Error parsing credentials JSON: {str(je)}")
-            logger.error("Please ensure the GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable contains valid JSON")
-            raise
         except Exception as e:
-            logger.error(f"Error creating credentials from JSON: {str(e)}")
-            logger.error("Private key format: " + creds_dict.get('private_key', '')[:50] + "...")
+            logger.error("✗ Failed to initialize Google Cloud credentials", exc_info=True)
             raise
+            
     else:
         # Fallback to file-based credentials
         credentials_path = "/app/credentials/google_credentials.json"
         if os.path.exists(credentials_path):
             credentials = service_account.Credentials.from_service_account_file(credentials_path)
             tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-            logger.info("Successfully initialized Google Cloud TTS client with credentials file")
+            logger.info("✓ Google Cloud TTS client initialized from credentials file")
         else:
-            raise Exception("No Google Cloud credentials found in environment or file system")
+            logger.error("✗ No Google Cloud credentials found in environment or file system")
+            raise Exception("No Google Cloud credentials found")
+            
 except Exception as e:
-    logger.error(f"Error initializing Google Cloud TTS client: {str(e)}")
+    logger.error("✗ Failed to initialize Google Cloud TTS client", exc_info=True)
     raise
 
 class TwitterVideoProcessor:
@@ -341,11 +401,17 @@ class TwitterVideoProcessor:
             # Use context data for analysis
             tweet_text = self.context.get("tweet_text", "")
             frame_url = self.context.get("frame_url")
+            video_duration = self.context.get("video_info", {}).get("duration", 0)
             
             if not frame_url:
                 logger.error("No frame URL available for analysis")
                 self.context["error"] = "No frame URL available for analysis"
                 return False
+            
+            # Calculate maximum words based on video duration
+            # Average speaking rate is about 150 words per minute or 2.5 words per second
+            max_words = int(min(35, video_duration * 2.5))  # Cap at 35 words
+            logger.info(f"Video duration: {video_duration}s, Maximum words allowed: {max_words}")
             
             try:
                 # Test Vision API first
@@ -386,7 +452,7 @@ class TwitterVideoProcessor:
                     logger.error(f"Vision API error: {type(vision_error).__name__} - {str(vision_error)}")
                     raise
                 
-                # Test DeepSeek API
+                # Test DeepSeek API with duration-aware prompt
                 logger.info("Testing DeepSeek API...")
                 try:
                     comment_response = self.deepseek_client.chat.completions.create(
@@ -394,16 +460,18 @@ class TwitterVideoProcessor:
                         messages=[
                             {
                                 "role": "system",
-                                "content": """Generate a short, engaging social media comment that sounds natural when narrated.
+                                "content": f"""Generate a short, engaging social media comment that sounds natural when narrated.
                                 Key rules:
                                 1. Write in a conversational, flowing style
                                 2. No quotes or special characters
-                                3. Keep it under 15 seconds (30-35 words)
-                                4. Focus on smooth transitions and natural speech"""
+                                3. Keep it under {max_words} words to fit within {video_duration:.1f} seconds
+                                4. Focus on smooth transitions and natural speech
+                                5. Use simple words that are easy to pronounce
+                                6. Avoid complex sentences or technical terms"""
                             },
                             {
                                 "role": "user",
-                                "content": f"Based on this analysis:\n\n{frame_analysis}\n\nTweet text: {tweet_text}\n\nGenerate a comment that flows naturally when spoken aloud."
+                                "content": f"Based on this analysis:\n\n{frame_analysis}\n\nTweet text: {tweet_text}\n\nGenerate a comment that flows naturally when spoken aloud and fits within {video_duration:.1f} seconds."
                             }
                         ],
                         max_tokens=150,
@@ -417,8 +485,34 @@ class TwitterVideoProcessor:
                     if not generated_comment:
                         raise Exception("No comment was generated")
                     
-                    logger.info("DeepSeek API Response received successfully")
-                    logger.info(f"Generated comment: {generated_comment}")
+                    # Verify comment length
+                    word_count = len(generated_comment.split())
+                    if word_count > max_words:
+                        logger.warning(f"Comment too long ({word_count} words), regenerating...")
+                        # Try one more time with stricter prompt
+                        comment_response = self.deepseek_client.chat.completions.create(
+                            model="deepseek-chat",
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": f"""Generate an extremely concise comment.
+                                    CRITICAL: Must be under {max_words} words.
+                                    Be brief but engaging."""
+                                },
+                                {
+                                    "role": "user",
+                                    "content": f"Create a {max_words}-word comment about: {frame_analysis}"
+                                }
+                            ],
+                            max_tokens=100,
+                            temperature=0.5
+                        )
+                        generated_comment = comment_response.choices[0].message.content.strip()
+                        word_count = len(generated_comment.split())
+                    
+                    logger.info(f"Generated comment ({word_count} words): {generated_comment}")
+                    estimated_duration = word_count / 2.5  # 2.5 words per second
+                    logger.info(f"Estimated narration duration: {estimated_duration:.1f}s")
                     
                     # Store the comment in context
                     self.context["comment"] = generated_comment
