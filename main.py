@@ -74,19 +74,38 @@ try:
                 
                 # Fix private key formatting
                 private_key = creds_dict['private_key']
-                if not private_key.startswith('-----BEGIN PRIVATE KEY-----\n'):
-                    # Add proper PEM formatting
-                    private_key = private_key.replace('\\n', '\n').strip()
-                    if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
-                        private_key = '-----BEGIN PRIVATE KEY-----\n' + private_key
-                    if not private_key.endswith('-----END PRIVATE KEY-----'):
-                        private_key = private_key + '\n-----END PRIVATE KEY-----\n'
-                    creds_dict['private_key'] = private_key
+                
+                # Remove any existing formatting
+                private_key = private_key.replace('\\n', '\n')  # Replace escaped newlines
+                private_key = private_key.replace('-----BEGIN PRIVATE KEY-----', '')
+                private_key = private_key.replace('-----END PRIVATE KEY-----', '')
+                private_key = private_key.strip()
+                
+                # Add proper PEM formatting with exact newlines
+                formatted_key = (
+                    '-----BEGIN PRIVATE KEY-----\n'
+                    f'{private_key}\n'
+                    '-----END PRIVATE KEY-----\n'
+                )
+                
+                # Update the credentials dictionary
+                creds_dict['private_key'] = formatted_key
                 
                 logger.info("Private key formatted successfully")
+                logger.info(f"Private key starts with: {formatted_key[:50]}...")
                 
-                credentials = service_account.Credentials.from_service_account_info(creds_dict)
+                # Write credentials to a temporary file
+                temp_creds_file = os.path.join(tempfile.gettempdir(), 'google_credentials_temp.json')
+                with open(temp_creds_file, 'w') as f:
+                    json.dump(creds_dict, f)
+                
+                # Use file-based credentials (more reliable)
+                credentials = service_account.Credentials.from_service_account_file(temp_creds_file)
                 tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                
+                # Clean up temporary file
+                os.remove(temp_creds_file)
+                
                 logger.info("Successfully initialized Google Cloud TTS client with credentials from environment")
             except json.JSONDecodeError as je:
                 logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
