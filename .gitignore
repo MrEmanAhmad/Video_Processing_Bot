@@ -66,4 +66,11 @@ credentials/
 *secret*
 *key*
 google_credentials.json
-*-credentials.json 
+*-credentials.json
+
+# Environment variables
+.env
+.env.*
+
+# OS
+Thumbs.db 
