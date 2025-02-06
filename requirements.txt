@@ -6,4 +6,5 @@ google-cloud-texttospeech==2.15.0
 openai==1.12.0
 python-dotenv==1.0.1
 emoji==2.10.1
-pathlib==1.0.1 
+pathlib==1.0.1
+requests==2.31.0 

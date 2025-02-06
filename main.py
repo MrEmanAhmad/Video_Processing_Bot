@@ -21,6 +21,7 @@ import asyncio
 import time
 import shutil
 from datetime import datetime
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -295,10 +296,9 @@ class TwitterVideoProcessor:
             # Convert x.com to twitter.com
             url = url.replace('x.com', 'twitter.com')
 
-            # Check for cookies file
-            cookies_path = None
-            if os.path.exists(os.path.join(self.temp_dir, "cookies.txt")):
-                cookies_path = os.path.join(self.temp_dir, "cookies.txt")
+            # Extract tweet ID
+            tweet_id = url.split('/')[-1].split('?')[0]
+            logger.info(f"Extracted tweet ID: {tweet_id}")
 
             options = {
                 'outtmpl': os.path.join(downloads_dir, '%(id)s.%(ext)s'),
@@ -308,12 +308,38 @@ class TwitterVideoProcessor:
                 'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 'quiet': True,
                 'no_warnings': True,
-                'extract_flat': False
+                'extract_flat': False,
+                'extractor_args': {
+                    'twitter': {
+                        'api': ['graphql'],
+                    }
+                },
+                # Add headers to mimic browser
+                'headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Referer': 'https://twitter.com/',
+                    'Origin': 'https://twitter.com',
+                    'Connection': 'keep-alive',
+                }
             }
 
-            # Add cookies if available
-            if cookies_path:
-                options['cookiefile'] = cookies_path
+            # Try to get guest token first
+            try:
+                guest_token_url = 'https://api.twitter.com/1.1/guest/activate.json'
+                guest_token_headers = {
+                    'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs=1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
+                }
+                guest_token_response = requests.post(guest_token_url, headers=guest_token_headers)
+                if guest_token_response.status_code == 200:
+                    guest_token = guest_token_response.json().get('guest_token')
+                    if guest_token:
+                        options['headers']['x-guest-token'] = guest_token
+                        logger.info("Successfully obtained guest token")
+            except Exception as e:
+                logger.warning(f"Failed to get guest token: {e}")
 
             try:
                 with yt_dlp.YoutubeDL(options) as ydl:
@@ -345,11 +371,28 @@ class TwitterVideoProcessor:
             except yt_dlp.utils.DownloadError as e:
                 error_message = str(e)
                 logger.error(f"Error downloading tweet: {error_message}")
-                if "Unable to extract uploader id" in error_message:
-                    await message_obj.edit_text("⚠️ This tweet might be from a private account or has been deleted.")
-                else:
-                    await message_obj.edit_text("⚠️ Failed to download the video. The tweet might be unavailable or protected.")
-                return False
+                
+                # Try alternative download method if first attempt fails
+                try:
+                    logger.info("Attempting alternative download method...")
+                    # Add alternative API endpoints
+                    options['extractor_args']['twitter']['api'].extend(['syndication', 'api'])
+                    with yt_dlp.YoutubeDL(options) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        video_filename = ydl.prepare_filename(info)
+                        video_filename = os.path.splitext(video_filename)[0] + ".mp4"
+                        
+                        self.context["video_path"] = video_filename
+                        self.context["tweet_text"] = info.get('description', '')
+                        logger.info("Alternative download method successful")
+                        return True
+                except Exception as alt_e:
+                    logger.error(f"Alternative download method failed: {alt_e}")
+                    if "Unable to extract uploader id" in error_message:
+                        await message_obj.edit_text("⚠️ This tweet might be from a private account or has been deleted.")
+                    else:
+                        await message_obj.edit_text("⚠️ Failed to download the video. The tweet might be unavailable or protected.")
+                    return False
 
         except Exception as e:
             logger.error(f"Processing error: {str(e)}", exc_info=True)
