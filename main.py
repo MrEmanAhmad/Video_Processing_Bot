@@ -292,15 +292,28 @@ class TwitterVideoProcessor:
             downloads_dir = os.path.join(self.temp_dir, "downloads")
             os.makedirs(downloads_dir, exist_ok=True)
 
+            # Convert x.com to twitter.com
+            url = url.replace('x.com', 'twitter.com')
+
+            # Check for cookies file
+            cookies_path = None
+            if os.path.exists(os.path.join(self.temp_dir, "cookies.txt")):
+                cookies_path = os.path.join(self.temp_dir, "cookies.txt")
+
             options = {
                 'outtmpl': os.path.join(downloads_dir, '%(id)s.%(ext)s'),
                 'writedescription': True,
                 'writeinfojson': True,
                 'merge_output_format': 'mp4',
+                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False
             }
+
+            # Add cookies if available
+            if cookies_path:
+                options['cookiefile'] = cookies_path
 
             try:
                 with yt_dlp.YoutubeDL(options) as ydl:
