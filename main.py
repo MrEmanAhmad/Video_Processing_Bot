@@ -48,14 +48,43 @@ try:
     creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if creds_json:
         try:
-            # Clean up the JSON string by removing escaped newlines and extra backslashes
-            creds_json = creds_json.replace('\\n', '\n').replace('\\\\', '\\')
-            creds_dict = json.loads(creds_json)
-            credentials = service_account.Credentials.from_service_account_info(creds_dict)
-            tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-            logger.info("Successfully initialized Google Cloud TTS client with credentials from environment")
+            # Debug log the first few characters of the credentials
+            logger.info(f"Credentials string starts with: {creds_json[:50]}...")
+            
+            # Remove any potential wrapping quotes if present
+            creds_json = creds_json.strip()
+            if creds_json.startswith('"') and creds_json.endswith('"'):
+                creds_json = creds_json[1:-1]
+            
+            # Clean up the JSON string
+            creds_json = creds_json.replace('\\n', '\n')
+            creds_json = creds_json.replace('\\"', '"')
+            creds_json = creds_json.replace('\\\\', '\\')
+            
+            # Debug log the processed string
+            logger.info("Attempting to parse JSON credentials...")
+            
+            try:
+                creds_dict = json.loads(creds_json)
+                logger.info("JSON parsing successful")
+                
+                # Verify required fields
+                required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                missing_fields = [field for field in required_fields if field not in creds_dict]
+                if missing_fields:
+                    raise ValueError(f"Missing required fields in credentials: {missing_fields}")
+                
+                credentials = service_account.Credentials.from_service_account_info(creds_dict)
+                tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                logger.info("Successfully initialized Google Cloud TTS client with credentials from environment")
+            except json.JSONDecodeError as je:
+                logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
+                logger.error(f"Problematic JSON section: {creds_json[max(0, je.pos-20):min(len(creds_json), je.pos+20)]}")
+                raise
+            
         except json.JSONDecodeError as je:
             logger.error(f"Error parsing credentials JSON: {str(je)}")
+            logger.error("Please ensure the GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable contains valid JSON")
             raise
         except Exception as e:
             logger.error(f"Error creating credentials from JSON: {str(e)}")
