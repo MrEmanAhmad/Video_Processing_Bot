@@ -56,10 +56,8 @@ try:
             if creds_json.startswith('"') and creds_json.endswith('"'):
                 creds_json = creds_json[1:-1]
             
-            # Clean up the JSON string
-            creds_json = creds_json.replace('\\n', '\n')
-            creds_json = creds_json.replace('\\"', '"')
-            creds_json = creds_json.replace('\\\\', '\\')
+            # First unescape the JSON string
+            creds_json = bytes(creds_json, 'utf-8').decode('unicode_escape')
             
             # Debug log the processed string
             logger.info("Attempting to parse JSON credentials...")
