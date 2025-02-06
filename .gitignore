@@ -1,8 +1,15 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -18,13 +25,45 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Virtual Environment
 .env
 .venv
-env/
 venv/
 ENV/
-env.bak/
-venv.bak/
+
+# IDE
 .idea/
 .vscode/
-*.log 
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Test outputs and processed videos
+test_outputs/
+processed_videos/
+
+# Documentation
+README.md
+LICENSE
+*.md
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+.DS_Store
+
+# Credentials
+*.json
+credentials/
+*credentials*
+*secret*
+*key*
+google_credentials.json
+*-credentials.json 
