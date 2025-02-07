@@ -143,6 +143,41 @@ except Exception as e:
     logger.error("✗ Failed to configure OpenAI API key", exc_info=True)
     raise
 
+def validate_google_credentials(creds_dict: dict) -> bool:
+    """Validate Google Cloud credentials dictionary."""
+    try:
+        # Check required fields
+        required_fields = ['type', 'project_id', 'private_key', 'client_email']
+        missing_fields = [field for field in required_fields if field not in creds_dict]
+        if missing_fields:
+            logger.error(f"Missing required fields in credentials: {missing_fields}")
+            return False
+            
+        # Validate service account type
+        if creds_dict['type'] != 'service_account':
+            logger.error("Invalid credential type. Must be 'service_account'")
+            return False
+            
+        # Validate private key format
+        if not creds_dict['private_key'].startswith('-----BEGIN PRIVATE KEY-----'):
+            logger.error("Invalid private key format")
+            return False
+            
+        # Validate project ID format
+        if not creds_dict['project_id'] or not isinstance(creds_dict['project_id'], str):
+            logger.error("Invalid project ID")
+            return False
+            
+        # Validate client email format
+        if not creds_dict['client_email'] or '@' not in creds_dict['client_email']:
+            logger.error("Invalid client email format")
+            return False
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error validating credentials: {str(e)}")
+        return False
+
 # Initialize Google Cloud TTS client with explicit credentials
 try:
     # Try using environment variable directly first
@@ -188,11 +223,9 @@ try:
             
             logger.info("✓ JSON credentials parsed successfully")
             
-            # Verify required fields
-            required_fields = ['type', 'project_id', 'private_key', 'client_email']
-            missing_fields = [field for field in required_fields if field not in creds_dict]
-            if missing_fields:
-                raise ValueError(f"Missing required fields in credentials: {missing_fields}")
+            # Validate credentials
+            if not validate_google_credentials(creds_dict):
+                raise ValueError("Invalid credentials format")
             
             # Create credentials directory if it doesn't exist
             credentials_dir = '/app/credentials'
@@ -205,21 +238,39 @@ try:
             logger.info(f"Credentials file created successfully at {credentials_path}")
             
             # Create credentials object directly from dictionary
-            credentials = service_account.Credentials.from_service_account_info(creds_dict)
+            credentials = service_account.Credentials.from_service_account_info(
+                creds_dict,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            
+            # Explicitly set project
+            credentials = credentials.with_project_id(creds_dict['project_id'])
             
             # Initialize client with credentials
-            tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+            tts_client = texttospeech.TextToSpeechClient(
+                credentials=credentials,
+                client_options={"api_endpoint": "texttospeech.googleapis.com"}
+            )
             
             # Test the credentials with a simple API call
             try:
-                voices = tts_client.list_voices()
+                request = texttospeech.ListVoicesRequest()
+                voices = tts_client.list_voices(request=request)
                 logger.info("✓ Google Cloud TTS client initialized and verified successfully")
             except Exception as e:
                 logger.error(f"Failed to verify credentials: {str(e)}")
                 # Try reinitializing with file-based approach
-                credentials = service_account.Credentials.from_service_account_file(credentials_path)
-                tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-                voices = tts_client.list_voices()
+                credentials = service_account.Credentials.from_service_account_file(
+                    credentials_path,
+                    scopes=['https://www.googleapis.com/auth/cloud-platform']
+                ).with_project_id(creds_dict['project_id'])
+                
+                tts_client = texttospeech.TextToSpeechClient(
+                    credentials=credentials,
+                    client_options={"api_endpoint": "texttospeech.googleapis.com"}
+                )
+                request = texttospeech.ListVoicesRequest()
+                voices = tts_client.list_voices(request=request)
                 logger.info("✓ Google Cloud TTS client initialized with file-based credentials")
             
         except json.JSONDecodeError as je:
@@ -312,8 +363,14 @@ class TwitterVideoProcessor:
                     logger.info(f"Credentials file created successfully at {credentials_path}")
                     
                     # Create credentials object directly from dictionary
-                    credentials = service_account.Credentials.from_service_account_info(creds_dict)
-                    self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                    credentials = service_account.Credentials.from_service_account_info(
+                        creds_dict,
+                        scopes=['https://www.googleapis.com/auth/cloud-platform']
+                    )
+                    self.tts_client = texttospeech.TextToSpeechClient(
+                        credentials=credentials,
+                        client_options={"api_endpoint": "texttospeech.googleapis.com"}
+                    )
                     
                     # Verify credentials
                     try:
@@ -322,8 +379,15 @@ class TwitterVideoProcessor:
                     except Exception as e:
                         logger.error(f"Failed to verify credentials: {str(e)}")
                         # Try reinitializing with file-based approach
-                        credentials = service_account.Credentials.from_service_account_file(credentials_path)
-                        self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                        credentials = service_account.Credentials.from_service_account_file(
+                            credentials_path,
+                            scopes=['https://www.googleapis.com/auth/cloud-platform']
+                        ).with_project_id(creds_dict['project_id'])
+                        
+                        self.tts_client = texttospeech.TextToSpeechClient(
+                            credentials=credentials,
+                            client_options={"api_endpoint": "texttospeech.googleapis.com"}
+                        )
                         self.tts_client.list_voices()
                         logger.info("✓ TTS client initialized with file-based credentials")
                         
