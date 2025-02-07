@@ -1152,54 +1152,64 @@ class TwitterVideoProcessor:
             output_dir = os.path.join(self.temp_dir, "audio_output")
             os.makedirs(output_dir, exist_ok=True)
 
-            # Configure voice parameters
-            voice_params = {
-                'name': 'en-GB-Journey-O',
-                'language_codes': ['en-GB']
-            }
-
-            # Configure synthesis input
-            synthesis_input = texttospeech.SynthesisInput(text=narration_text)
-            
-            # Configure voice
-            voice = texttospeech.VoiceSelectionParams(
-                language_code=voice_params['language_codes'][0],
-                name=voice_params['name']
-            )
-
-            # Configure audio
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.LINEAR16
-            )
-
-            # Generate speech using the instance TTS client
-            response = self.tts_client.synthesize_speech(
-                input=synthesis_input,
-                voice=voice,
-                audio_config=audio_config
-            )
-
-            # Save the audio file
-            audio_path = os.path.join(output_dir, f"{voice_params['name']}.wav")
-            with open(audio_path, "wb") as out:
-                out.write(response.audio_content)
-
-            # Store the audio path in context
-            self.context["audio_path"] = audio_path
-            
-            # Verify the audio file was created and has content
-            if not os.path.exists(audio_path):
-                logger.error("Failed to generate audio file")
-                self.context["error"] = "Failed to generate audio file"
-                return False
+            try:
+                # List available voices first to verify client works
+                voices = self.tts_client.list_voices()
+                logger.info("Successfully listed voices, client is working")
                 
-            if os.path.getsize(audio_path) == 0:
-                logger.error("Generated audio file is empty")
-                self.context["error"] = "Generated audio file is empty"
-                return False
+                # Configure synthesis input
+                synthesis_input = texttospeech.SynthesisInput(text=narration_text)
                 
-            logger.info(f"Generated audio file: {audio_path}")
-            return True
+                # Select the voice
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="en-GB",
+                    name="en-GB-Neural2-B",
+                    ssml_gender=texttospeech.SsmlVoiceGender.MALE
+                )
+                
+                # Select the type of audio file
+                audio_config = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                    speaking_rate=1.0,
+                    pitch=0.0,
+                    volume_gain_db=0.0
+                )
+                
+                # Perform the text-to-speech request
+                logger.info("Sending TTS request...")
+                response = self.tts_client.synthesize_speech(
+                    input=synthesis_input,
+                    voice=voice,
+                    audio_config=audio_config
+                )
+                
+                # Save the audio file
+                audio_path = os.path.join(output_dir, "output.wav")
+                with open(audio_path, "wb") as out:
+                    out.write(response.audio_content)
+                    logger.info(f"Audio content written to file: {audio_path}")
+                
+                # Store the audio path in context
+                self.context["audio_path"] = audio_path
+                
+                # Verify the audio file
+                if not os.path.exists(audio_path):
+                    logger.error("Failed to generate audio file")
+                    self.context["error"] = "Failed to generate audio file"
+                    return False
+                    
+                if os.path.getsize(audio_path) == 0:
+                    logger.error("Generated audio file is empty")
+                    self.context["error"] = "Generated audio file is empty"
+                    return False
+                
+                logger.info("✓ Speech generation completed successfully")
+                return True
+                
+            except Exception as e:
+                logger.error(f"TTS API error: {str(e)}")
+                self.context["error"] = f"TTS API error: {str(e)}"
+                return False
             
         except Exception as e:
             logger.error(f"Error in generate_speech: {e}")
