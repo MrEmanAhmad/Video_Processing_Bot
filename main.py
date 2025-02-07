@@ -151,6 +151,14 @@ try:
         try:
             logger.info("🔄 Initializing Google Cloud credentials from environment variable")
             
+            # If the value is a dict with a 'value' key (Railway format), extract the value
+            try:
+                creds_dict = json.loads(creds_json)
+                if isinstance(creds_dict, dict) and 'value' in creds_dict:
+                    creds_json = creds_dict['value']
+            except:
+                pass  # If this fails, continue with original string
+            
             # Try parsing with different methods
             try:
                 # First try normal parsing
@@ -258,6 +266,14 @@ class TwitterVideoProcessor:
             creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
             if creds_json:
                 try:
+                    # If the value is a dict with a 'value' key (Railway format), extract the value
+                    try:
+                        creds_dict = json.loads(creds_json)
+                        if isinstance(creds_dict, dict) and 'value' in creds_dict:
+                            creds_json = creds_dict['value']
+                    except:
+                        pass  # If this fails, continue with original string
+                    
                     # Clean up the JSON string if needed
                     creds_json = creds_json.strip('"').replace('\\"', '"')  # Remove outer quotes and unescape inner quotes
                     
