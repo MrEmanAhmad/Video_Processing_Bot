@@ -247,62 +247,32 @@ try:
             logger.info(f"Credentials file created successfully at {credentials_path}")
             
             # Create credentials object directly from dictionary
-            logger.info(f"Creating credentials for project: {creds_dict['project_id']}")
             credentials = service_account.Credentials.from_service_account_info(
                 creds_dict,
                 scopes=[
                     'https://www.googleapis.com/auth/cloud-platform',
-                    'https://www.googleapis.com/auth/cloud-language',
                     'https://www.googleapis.com/auth/cloud-texttospeech'
                 ]
-            )
-            logger.info("✓ Credentials object created successfully")
+            ).with_quota_project(creds_dict['project_id'])
             
-            # Initialize client with credentials
-            logger.info("Initializing Text-to-Speech client...")
-            client_options = {
-                "api_endpoint": "texttospeech.googleapis.com",
-                "quota_project_id": creds_dict['project_id']
-            }
-            logger.info(f"Client options: {client_options}")
+            # Set the environment variable for Application Default Credentials
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
             
+            # Initialize TTS client
             tts_client = texttospeech.TextToSpeechClient(
                 credentials=credentials,
-                client_options=client_options
+                client_options={
+                    "api_endpoint": "texttospeech.googleapis.com"
+                }
             )
-            logger.info("✓ Text-to-Speech client created")
             
-            # Test the credentials with a simple API call
+            # Test the client
             try:
-                logger.info("Testing credentials with list_voices API call...")
-                request = texttospeech.ListVoicesRequest()
-                voices = tts_client.list_voices(request=request)
-                logger.info(f"✓ API test successful, found {len(voices.voices)} voices")
-                logger.info("✓ Google Cloud TTS client initialized and verified successfully")
+                tts_client.list_voices()
+                logger.info("✓ TTS client initialized and tested successfully")
             except Exception as e:
-                logger.error(f"Failed to verify credentials: {str(e)}")
-                logger.info("Attempting to reinitialize with file-based approach...")
-                # Try reinitializing with file-based approach
-                credentials = service_account.Credentials.from_service_account_file(
-                    credentials_path,
-                    scopes=[
-                        'https://www.googleapis.com/auth/cloud-platform',
-                        'https://www.googleapis.com/auth/cloud-language',
-                        'https://www.googleapis.com/auth/cloud-texttospeech'
-                    ]
-                )
-                logger.info("✓ File-based credentials created")
-                
-                tts_client = texttospeech.TextToSpeechClient(
-                    credentials=credentials,
-                    client_options=client_options
-                )
-                logger.info("✓ New Text-to-Speech client created")
-                
-                request = texttospeech.ListVoicesRequest()
-                voices = tts_client.list_voices(request=request)
-                logger.info(f"✓ API test successful with file-based credentials, found {len(voices.voices)} voices")
-                logger.info("✓ Google Cloud TTS client initialized with file-based credentials")
+                logger.error(f"Failed to test TTS client: {e}")
+                raise
             
         except json.JSONDecodeError as je:
             logger.error("✗ Failed to parse JSON credentials")
@@ -395,7 +365,6 @@ class TwitterVideoProcessor:
                         creds_dict,
                         scopes=[
                             'https://www.googleapis.com/auth/cloud-platform',
-                            'https://www.googleapis.com/auth/cloud-language',
                             'https://www.googleapis.com/auth/cloud-texttospeech'
                         ]
                     )
