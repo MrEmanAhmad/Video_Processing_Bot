@@ -151,63 +151,70 @@ try:
         try:
             logger.info("🔄 Initializing Google Cloud credentials from environment variable")
             
-            # Clean up the JSON string if needed
-            creds_json = creds_json.strip('"').replace('\\"', '"')  # Remove outer quotes and unescape inner quotes
-            
             # Try parsing with different methods
             try:
                 # First try normal parsing
                 creds_dict = json.loads(creds_json)
             except json.JSONDecodeError:
                 try:
-                    # Try with strict=False to handle control characters
-                    creds_dict = json.loads(creds_json, strict=False)
-                except json.JSONDecodeError as je:
-                    # If still failing, try to clean up the string more aggressively
-                    creds_json = creds_json.encode().decode('unicode_escape')
-                    creds_dict = json.loads(creds_json, strict=False)
+                    # Try removing quotes and escapes
+                    cleaned_json = creds_json.strip('"\'').replace('\\"', '"')
+                    creds_dict = json.loads(cleaned_json)
+                except json.JSONDecodeError:
+                    try:
+                        # Try with strict=False
+                        creds_dict = json.loads(creds_json, strict=False)
+                    except json.JSONDecodeError as je:
+                        # If still failing, try more aggressive cleaning
+                        cleaned_json = creds_json.encode().decode('unicode_escape')
+                        cleaned_json = cleaned_json.strip('"\'')
+                        # Remove any duplicate backslashes
+                        cleaned_json = re.sub(r'\\+', r'\\', cleaned_json)
+                        try:
+                            creds_dict = json.loads(cleaned_json, strict=False)
+                        except json.JSONDecodeError as final_je:
+                            logger.error("✗ All JSON parsing attempts failed")
+                            logger.error(f"Original JSON string: {creds_json[:100]}...")
+                            logger.error(f"Cleaned JSON string: {cleaned_json[:100]}...")
+                            raise final_je
             
-                logger.info("✓ JSON credentials parsed successfully")
-                
-                # Verify required fields
-                required_fields = ['type', 'project_id', 'private_key', 'client_email']
-                missing_fields = [field for field in required_fields if field not in creds_dict]
-                if missing_fields:
-                    raise ValueError(f"Missing required fields in credentials: {missing_fields}")
-                
-                # Create credentials directory if it doesn't exist
-                credentials_dir = '/app/credentials'
-                os.makedirs(credentials_dir, exist_ok=True)
-                
-                # Write credentials to file for persistence
-                credentials_path = os.path.join(credentials_dir, 'google_credentials.json')
-                with open(credentials_path, 'w') as f:
-                    json.dump(creds_dict, f, indent=2)
-                logger.info(f"Credentials file created successfully at {credentials_path}")
-                
-                # Set environment variable to point to the file
-                os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-                
-                # Create credentials object directly from dictionary
-                credentials = service_account.Credentials.from_service_account_info(creds_dict)
-                
-                # Initialize client with credentials
-                tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-                
-                # Test the credentials with a simple API call
-                voices = tts_client.list_voices()
-                logger.info("✓ Google Cloud TTS client initialized and verified successfully")
-                
-            except json.JSONDecodeError as je:
-                logger.error("✗ Failed to parse JSON credentials")
-                logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
-                logger.error(f"Invalid JSON string: {creds_json[:100]}...")  # Log first 100 chars
-                raise
-                
-        except Exception as e:
-            logger.error("✗ Failed to initialize Google Cloud credentials", exc_info=True)
+            logger.info("✓ JSON credentials parsed successfully")
+            
+            # Verify required fields
+            required_fields = ['type', 'project_id', 'private_key', 'client_email']
+            missing_fields = [field for field in required_fields if field not in creds_dict]
+            if missing_fields:
+                raise ValueError(f"Missing required fields in credentials: {missing_fields}")
+            
+            # Create credentials directory if it doesn't exist
+            credentials_dir = '/app/credentials'
+            os.makedirs(credentials_dir, exist_ok=True)
+            
+            # Write credentials to file for persistence
+            credentials_path = os.path.join(credentials_dir, 'google_credentials.json')
+            with open(credentials_path, 'w') as f:
+                json.dump(creds_dict, f, indent=2)
+            logger.info(f"Credentials file created successfully at {credentials_path}")
+            
+            # Set environment variable to point to the file
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+            
+            # Create credentials object directly from dictionary
+            credentials = service_account.Credentials.from_service_account_info(creds_dict)
+            
+            # Initialize client with credentials
+            tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+            
+            # Test the credentials with a simple API call
+            voices = tts_client.list_voices()
+            logger.info("✓ Google Cloud TTS client initialized and verified successfully")
+            
+        except json.JSONDecodeError as je:
+            logger.error("✗ Failed to parse JSON credentials")
+            logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
+            logger.error(f"Invalid JSON string: {creds_json[:100]}...")  # Log first 100 chars
             raise
-            
+                
     else:
         # Fallback to file-based credentials
         credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', "/app/credentials/google_credentials.json")
