@@ -147,6 +147,28 @@ except Exception as e:
 def validate_google_credentials(creds_dict: dict) -> bool:
     """Validate Google Cloud credentials dictionary."""
     try:
+        # If we got a Railway-style variable, extract the actual credentials
+        if isinstance(creds_dict, dict) and 'value' in creds_dict:
+            logger.info("Detected Railway-style credentials format")
+            try:
+                # The value might be a JSON string
+                creds_dict = json.loads(creds_dict['value'])
+            except json.JSONDecodeError:
+                # If not JSON, use the value directly
+                creds_dict = creds_dict['value']
+        
+        # If we got a string, try to parse it as JSON
+        if isinstance(creds_dict, str):
+            try:
+                creds_dict = json.loads(creds_dict)
+            except json.JSONDecodeError as je:
+                # Try cleaning the string first
+                cleaned_json = creds_dict.encode('utf-8').decode('unicode_escape')
+                cleaned_json = cleaned_json.strip('"\'')  # Remove outer quotes
+                cleaned_json = re.sub(r'\\+n', '\n', cleaned_json)  # Fix newlines
+                cleaned_json = re.sub(r'\\+', '\\', cleaned_json)  # Fix escapes
+                creds_dict = json.loads(cleaned_json)
+
         # Check required fields
         required_fields = [
             'type', 'project_id', 'private_key_id', 'private_key',
@@ -229,79 +251,47 @@ try:
         try:
             logger.info("🔄 Initializing Google Cloud credentials from environment variable")
             
-            # If the value is a dict with a 'value' key (Railway format), extract the value
+            # First, try to parse as a regular JSON
             try:
-                # First, try to parse as a regular JSON
                 creds_dict = json.loads(creds_json)
-                logger.info("Successfully parsed credentials JSON directly")
-            except json.JSONDecodeError:
-                try:
-                    # If direct parsing fails, try cleaning the string
-                    cleaned_json = creds_json.encode('utf-8').decode('unicode_escape')
-                    cleaned_json = cleaned_json.strip('"\'')  # Remove outer quotes
-                    cleaned_json = re.sub(r'\\+n', '\n', cleaned_json)  # Fix newlines
-                    cleaned_json = re.sub(r'\\+', '\\', cleaned_json)  # Fix escapes
-                    
-                    logger.info("Attempting to parse cleaned credentials JSON")
-                    creds_dict = json.loads(cleaned_json)
-                except Exception as e:
-                    logger.error(f"Failed to parse credentials JSON after cleaning: {str(e)}")
-                    raise
-            
-            logger.info("✓ JSON credentials parsed successfully")
-            
-            # Validate credentials
-            if not validate_google_credentials(creds_dict):
-                logger.error("Credentials validation failed - check the service account permissions")
-                raise ValueError("Invalid credentials format - please verify the service account has proper permissions")
-            
-            # Create credentials directory if it doesn't exist
-            credentials_dir = '/app/credentials'
-            os.makedirs(credentials_dir, exist_ok=True)
-            
-            # Write credentials to file for persistence
-            credentials_path = os.path.join(credentials_dir, 'google_credentials.json')
-            with open(credentials_path, 'w') as f:
-                json.dump(creds_dict, f, indent=2)
-            logger.info(f"Credentials file created successfully at {credentials_path}")
-            
-            # Create credentials object with explicit scopes
-            credentials = service_account.Credentials.from_service_account_info(
-                creds_dict,
-                scopes=[
-                    'https://www.googleapis.com/auth/cloud-platform',
-                    'https://www.googleapis.com/auth/cloud-texttospeech'
-                ]
-            )
-            
-            # Test the credentials by creating a minimal client
-            try:
-                test_client = texttospeech.TextToSpeechClient(credentials=credentials)
-                test_client.list_voices()  # Test API access
-                logger.info("✓ Credentials validated successfully with API test")
-            except Exception as e:
-                logger.error(f"Failed to validate credentials with API test: {str(e)}")
-                raise
-            
-        except json.JSONDecodeError as je:
-            logger.error("✗ Failed to parse JSON credentials")
-            logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
-            logger.error(f"Invalid JSON string: {creds_json[:100]}...")  # Log first 100 chars
-            raise
+                logger.info("Successfully parsed initial JSON")
                 
-    else:
-        # Fallback to file-based credentials
-        credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', "/app/credentials/google_credentials.json")
-        if os.path.exists(credentials_path):
-            try:
-                credentials = service_account.Credentials.from_service_account_file(credentials_path)
-                logger.info("✓ Google Cloud TTS client initialized from credentials file")
-            except Exception as e:
-                logger.error(f"✗ Failed to initialize from credentials file: {str(e)}")
+                # If this is a Railway variable, it will be in the format {"value": "actual_json_string"}
+                if isinstance(creds_dict, dict) and 'value' in creds_dict:
+                    logger.info("Found Railway-style credentials format")
+                    actual_creds = json.loads(creds_dict['value'])
+                else:
+                    actual_creds = creds_dict
+                
+                logger.info(f"Credential keys found: {list(actual_creds.keys())}")
+                
+                # Create credentials object with explicit scopes
+                credentials = service_account.Credentials.from_service_account_info(
+                    actual_creds,
+                    scopes=[
+                        'https://www.googleapis.com/auth/cloud-platform',
+                        'https://www.googleapis.com/auth/cloud-texttospeech'
+                    ]
+                )
+                
+                # Test the credentials
+                tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                logger.info("✓ TTS client initialized successfully")
+                
+            except json.JSONDecodeError as je:
+                logger.error(f"Failed to parse credentials JSON: {str(je)}")
                 raise
-        else:
-            logger.error("✗ No Google Cloud credentials found in environment or file system")
-            raise Exception("No Google Cloud credentials found")
+            except Exception as e:
+                logger.error(f"Error initializing credentials: {str(e)}")
+                raise
+                
+        except Exception as e:
+            logger.error("✗ Failed to initialize Google Cloud credentials")
+            logger.error(str(e))
+            raise
+    else:
+        logger.error("✗ No Google Cloud credentials found in environment")
+        raise ValueError("Missing GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable")
             
 except Exception as e:
     logger.error("✗ Failed to initialize Google Cloud TTS client", exc_info=True)
