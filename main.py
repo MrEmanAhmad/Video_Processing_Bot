@@ -22,6 +22,9 @@ import time
 import shutil
 from datetime import datetime
 import requests
+import atexit
+import sys
+import logging.handlers
 
 # Load environment variables
 load_dotenv()
@@ -61,10 +64,18 @@ logger.setLevel(getattr(logging, os.getenv('LOG_LEVEL', 'INFO')))
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
 
-# Create file handler for persistent logging
-log_file = os.path.join('logs', f'bot_{datetime.now().strftime("%Y%m%d")}.log')
-os.makedirs('logs', exist_ok=True)
-file_handler = logging.FileHandler(log_file)
+# Create file handler for persistent logging with rotation
+log_dir = 'logs'
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, f'bot_{datetime.now().strftime("%Y%m%d")}.log')
+
+# Use RotatingFileHandler instead of FileHandler
+file_handler = logging.handlers.RotatingFileHandler(
+    log_file,
+    maxBytes=10*1024*1024,  # 10MB
+    backupCount=5,
+    encoding='utf-8'  # Explicitly set encoding
+)
 file_handler.setLevel(logging.DEBUG)
 
 # Create formatters and add them to the handlers
@@ -82,6 +93,31 @@ logger.addHandler(file_handler)
 logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('telegram').setLevel(logging.WARNING)
 logging.getLogger('asyncio').setLevel(logging.WARNING)
+
+# Register cleanup function
+def cleanup_logs():
+    try:
+        # Remove handlers first
+        for handler in logger.handlers[:]:
+            try:
+                handler.close()
+                logger.removeHandler(handler)
+            except Exception as e:
+                print(f"Error closing log handler: {e}", file=sys.stderr)
+                
+        # Now try to remove old log files
+        if os.path.exists(log_dir):
+            current_log = os.path.basename(log_file)
+            for old_log in os.listdir(log_dir):
+                if old_log != current_log and old_log.endswith('.log'):
+                    try:
+                        os.remove(os.path.join(log_dir, old_log))
+                    except Exception as e:
+                        print(f"Error removing old log {old_log}: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"Error in cleanup_logs: {e}", file=sys.stderr)
+
+atexit.register(cleanup_logs)
 
 # Log startup information
 logger.info("=== Twitter Video Processing Bot Starting ===")
@@ -115,65 +151,38 @@ try:
         try:
             # Debug log the credentials initialization
             logger.info("🔄 Initializing Google Cloud credentials from environment variable")
-            logger.debug("Credentials string length: %d characters", len(creds_json))
             
-            # Remove any potential wrapping quotes if present
-            creds_json = creds_json.strip()
-            if creds_json.startswith('"') and creds_json.endswith('"'):
-                creds_json = creds_json[1:-1]
-                logger.debug("Removed wrapping quotes from credentials string")
+            # Parse JSON directly - it's already in the correct format
+            creds_dict = json.loads(creds_json)
+            logger.info("✓ JSON credentials parsed successfully")
             
-            # First unescape the JSON string
-            creds_json = bytes(creds_json, 'utf-8').decode('unicode_escape')
+            # Verify required fields
+            required_fields = ['type', 'project_id', 'private_key', 'client_email']
+            missing_fields = [field for field in required_fields if field not in creds_dict]
+            if missing_fields:
+                raise ValueError(f"Missing required fields in credentials: {missing_fields}")
+            logger.debug("All required credential fields present")
             
-            try:
-                creds_dict = json.loads(creds_json)
-                logger.info("✓ JSON credentials parsed successfully")
-                
-                # Verify required fields
-                required_fields = ['type', 'project_id', 'private_key', 'client_email']
-                missing_fields = [field for field in required_fields if field not in creds_dict]
-                if missing_fields:
-                    raise ValueError(f"Missing required fields in credentials: {missing_fields}")
-                logger.debug("All required credential fields present")
-                
-                # Fix private key formatting
-                private_key = creds_dict['private_key']
-                private_key = private_key.replace('\\n', '\n')
-                private_key = private_key.replace('-----BEGIN PRIVATE KEY-----', '')
-                private_key = private_key.replace('-----END PRIVATE KEY-----', '')
-                private_key = private_key.strip()
-                
-                formatted_key = (
-                    '-----BEGIN PRIVATE KEY-----\n'
-                    f'{private_key}\n'
-                    '-----END PRIVATE KEY-----\n'
-                )
-                
-                creds_dict['private_key'] = formatted_key
-                logger.info("✓ Private key formatted successfully")
-                
-                # Write credentials to a temporary file
-                temp_creds_file = os.path.join(tempfile.gettempdir(), 'google_credentials_temp.json')
-                with open(temp_creds_file, 'w') as f:
-                    json.dump(creds_dict, f)
-                logger.debug(f"Temporary credentials file created at: {temp_creds_file}")
-                
-                # Initialize client with credentials
-                credentials = service_account.Credentials.from_service_account_file(temp_creds_file)
-                tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-                
-                # Clean up temporary file
-                os.remove(temp_creds_file)
-                logger.debug("Temporary credentials file removed")
-                
-                logger.info("✓ Google Cloud TTS client initialized successfully")
-                
-            except json.JSONDecodeError as je:
-                logger.error("✗ Failed to parse JSON credentials")
-                logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
-                logger.error(f"Problematic section: {creds_json[max(0, je.pos-20):min(len(creds_json), je.pos+20)]}")
-                raise
+            # Write credentials to a temporary file
+            temp_creds_file = os.path.join(tempfile.gettempdir(), 'google_credentials_temp.json')
+            with open(temp_creds_file, 'w') as f:
+                json.dump(creds_dict, f)
+            logger.debug(f"Temporary credentials file created at: {temp_creds_file}")
+            
+            # Initialize client with credentials
+            credentials = service_account.Credentials.from_service_account_file(temp_creds_file)
+            tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+            
+            # Clean up temporary file
+            os.remove(temp_creds_file)
+            logger.debug("Temporary credentials file removed")
+            
+            logger.info("✓ Google Cloud TTS client initialized successfully")
+            
+        except json.JSONDecodeError as je:
+            logger.error("✗ Failed to parse JSON credentials")
+            logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
+            raise
             
         except Exception as e:
             logger.error("✗ Failed to initialize Google Cloud credentials", exc_info=True)
@@ -198,19 +207,40 @@ class TwitterVideoProcessor:
     def __init__(self):
         self.temp_dir = os.path.join('/tmp', f'twitter_processor_{int(time.time())}')
         os.makedirs(self.temp_dir, exist_ok=True)
-        # Initialize OpenAI client with explicit configuration
+        # Initialize OpenAI client with stricter timeouts
         self.openai_client = openai.OpenAI(
             api_key=os.getenv('OPENAI_API_KEY'),
-            timeout=30.0,
-            max_retries=3
+            timeout=15.0,  # Reduced from 30
+            max_retries=2  # Reduced from 3
         )
-        # Initialize DeepSeek client with explicit configuration
+        # Initialize DeepSeek client with stricter timeouts
         self.deepseek_client = openai.OpenAI(
             api_key=os.getenv('DEEPSEEK_API_KEY'),
             base_url="https://api.deepseek.com/v1",
-            timeout=30.0,
-            max_retries=3
+            timeout=15.0,  # Reduced from 30
+            max_retries=1  # Reduced from 3
         )
+        # Initialize TTS client
+        try:
+            creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+            if creds_json:
+                creds_dict = json.loads(creds_json)
+                temp_creds_file = os.path.join(tempfile.gettempdir(), 'google_credentials_temp.json')
+                with open(temp_creds_file, 'w') as f:
+                    json.dump(creds_dict, f)
+                credentials = service_account.Credentials.from_service_account_file(temp_creds_file)
+                self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                os.remove(temp_creds_file)
+            else:
+                credentials_path = "/app/credentials/google_credentials.json"
+                if os.path.exists(credentials_path):
+                    credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                    self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                else:
+                    raise Exception("No Google Cloud credentials found")
+        except Exception as e:
+            logger.error(f"Failed to initialize TTS client: {e}")
+            raise
         # Initialize context dictionary for workflow tracking
         self.context = {
             "temp_dir": self.temp_dir,
@@ -269,18 +299,37 @@ class TwitterVideoProcessor:
         
     async def animate_loading(self, message_obj, animation_key: str, duration: float = 2.0):
         """Animate loading message while processing"""
-        start_time = time.time()
-        animation_frames = self.loading_animations[animation_key]
-        frame_index = 0
-        
-        while time.time() - start_time < duration:
+        try:
+            start_time = time.time()
+            animation_frames = self.loading_animations[animation_key]
+            frame_index = 0
+            
+            while True:
+                try:
+                    # Check if we've been running longer than expected
+                    if duration and (time.time() - start_time > duration):
+                        break
+                        
+                    await message_obj.edit_text(animation_frames[frame_index])
+                    frame_index = (frame_index + 1) % len(animation_frames)
+                    await asyncio.sleep(0.5)
+                except asyncio.CancelledError:
+                    # Clean exit on cancellation
+                    break
+                except Exception as e:
+                    logger.debug(f"Animation frame update skipped: {e}")
+                    await asyncio.sleep(0.5)
+                    continue
+                    
+        except Exception as e:
+            logger.debug(f"Animation ended: {e}")
+        finally:
             try:
-                await message_obj.edit_text(animation_frames[frame_index])
-                frame_index = (frame_index + 1) % len(animation_frames)
-                await asyncio.sleep(0.5)  # Update animation every 0.5 seconds
-            except Exception as e:
-                logger.error(f"Animation error: {e}")
-                break
+                # Try to set final frame on exit
+                if animation_frames:
+                    await message_obj.edit_text(animation_frames[-1])
+            except Exception:
+                pass
 
     async def download_tweet(self, url: str, message_obj) -> bool:
         """Download tweet video and extract metadata."""
@@ -457,12 +506,11 @@ class TwitterVideoProcessor:
             try:
                 probe = ffmpeg.probe(self.context["video_path"])
                 video_info = next(s for s in probe['streams'] if s['codec_type'] == 'video')
-                video_duration = float(video_info.get('duration', 30.0))  # Default to 30 seconds if duration not found
+                video_duration = float(video_info.get('duration', 30.0))
             except Exception as e:
                 logger.warning(f"Failed to get video duration: {e}, using default")
-                video_duration = 30.0  # Default duration if probe fails
+                video_duration = 30.0
             
-            # Use context data for analysis
             tweet_text = self.context.get("tweet_text", "")
             frame_url = self.context.get("frame_url")
             
@@ -471,130 +519,104 @@ class TwitterVideoProcessor:
                 self.context["error"] = "No frame URL available for analysis"
                 return False
             
-            # Calculate maximum words based on video duration
-            # Average speaking rate is about 150 words per minute or 2.5 words per second
-            max_words = max(15, min(35, int(video_duration * 2.5)))  # Minimum 15 words, maximum 35 words
+            max_words = max(15, min(35, int(video_duration * 2.5)))
             logger.info(f"Video duration: {video_duration}s, Maximum words allowed: {max_words}")
-            
+
+            # First get vision analysis
             try:
-                # Test Vision API first
-                logger.info("Testing OpenAI Vision API...")
-                try:
-                    vision_response = self.openai_client.chat.completions.create(
+                logger.info("Getting vision analysis...")
+                vision_response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self.openai_client.chat.completions.create,
                         model="gpt-4o-mini",
                         messages=[
                             {
-                                "role": "system",
-                                "content": "You are a social media content analyzer. Analyze the video frame and tweet text to understand the content and generate an engaging, empathetic comment that captures the essence of the content."
-                            },
-                            {
                                 "role": "user",
                                 "content": [
-                                    {
-                                        "type": "text",
-                                        "text": f"Tweet text: {tweet_text}\n\nAnalyze this frame in the context of the tweet."
-                                    },
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {
-                                            "url": frame_url,
-                                            "detail": "high"
-                                        }
-                                    }
+                                    {"type": "text", "text": f"Analyze this video frame and tweet text: {tweet_text}"},
+                                    {"type": "image_url", "image_url": {"url": frame_url}}
                                 ]
                             }
-                        ],
-                        max_tokens=300
-                    )
-                    
-                    frame_analysis = vision_response.choices[0].message.content
-                    if not frame_analysis:
-                        raise Exception("No analysis generated from Vision API")
-                    
-                    logger.info("Vision API Response received successfully")
-                    self.context["frame_analysis"] = frame_analysis
-                    
-                except Exception as vision_error:
-                    logger.error(f"Vision API error: {type(vision_error).__name__} - {str(vision_error)}")
-                    raise
+                        ]
+                    ),
+                    timeout=20  # 20 second timeout for vision
+                )
                 
-                # Test DeepSeek API with duration-aware prompt
-                logger.info("Testing DeepSeek API...")
+                frame_analysis = vision_response.choices[0].message.content
+                if not frame_analysis:
+                    raise Exception("No analysis generated from Vision API")
+                
+                # Try DeepSeek first for text generation
                 try:
-                    comment_response = self.deepseek_client.chat.completions.create(
-                        model="deepseek-chat",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": f"""Generate a short, engaging social media comment that sounds natural when narrated.
-                                Key rules:
-                                1. Write in a conversational, flowing style
-                                2. No quotes or special characters
-                                3. Keep it EXACTLY {max_words} words or less
-                                4. Focus on smooth transitions and natural speech
-                                5. Use simple words that are easy to pronounce
-                                6. Avoid complex sentences or technical terms
-                                7. Make it engaging and shareable"""
-                            },
-                            {
-                                "role": "user",
-                                "content": f"Based on this analysis:\n\n{frame_analysis}\n\nTweet text: {tweet_text}\n\nGenerate a comment that flows naturally when spoken aloud, MUST be {max_words} words or less, and fits within {video_duration:.1f} seconds."
-                            }
-                        ],
-                        max_tokens=150,
-                        temperature=0.7
-                    )
-                    
-                    if not comment_response or not hasattr(comment_response, 'choices') or not comment_response.choices:
-                        raise Exception("Invalid response from DeepSeek API")
-                    
-                    generated_comment = comment_response.choices[0].message.content.strip()
-                    if not generated_comment:
-                        raise Exception("No comment was generated")
-                    
-                    # Verify comment length
-                    word_count = len(generated_comment.split())
-                    if word_count > max_words:
-                        logger.warning(f"Comment too long ({word_count} words), regenerating...")
-                        # Try one more time with stricter prompt
-                        comment_response = self.deepseek_client.chat.completions.create(
+                    logger.info("Using DeepSeek for comment generation...")
+                    comment_response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self.deepseek_client.chat.completions.create,
                             model="deepseek-chat",
                             messages=[
                                 {
                                     "role": "system",
-                                    "content": f"""Generate an extremely concise comment.
-                                    CRITICAL: Must be EXACTLY {max_words} words or less.
-                                    Be brief but engaging.
-                                    Focus on the most important aspect only."""
+                                    "content": f"""Generate an enthusiastic, engaging comment that sounds like a friendly person sharing their genuine excitement.
+                                    Key requirements:
+                                    1. Use natural speech patterns but keep them positive
+                                    2. Show genuine enthusiasm and warmth
+                                    3. Keep it under {max_words} words
+                                    4. Use friendly, conversational language
+                                    5. Express sincere appreciation"""
                                 },
                                 {
                                     "role": "user",
-                                    "content": f"Create a {max_words}-word or shorter comment about: {frame_analysis}"
+                                    "content": f"Based on this analysis:\n{frame_analysis}\nTweet text: {tweet_text}\nGenerate an enthusiastic, friendly comment."
+                                }
+                            ],
+                            max_tokens=150,
+                            temperature=0.8
+                        ),
+                        timeout=15  # 15 second timeout for DeepSeek
+                    )
+                    generated_comment = comment_response.choices[0].message.content.strip()
+                    
+                except (asyncio.TimeoutError, Exception) as e:
+                    logger.warning(f"DeepSeek failed: {str(e)}, falling back to OpenAI")
+                    # Fall back to OpenAI for text generation
+                    comment_response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self.openai_client.chat.completions.create,
+                            model="gpt-4o-mini",
+                            messages=[
+                                {
+                                    "role": "system",
+                                    "content": f"Generate a natural {max_words}-word enthusiastic comment."
+                                },
+                                {
+                                    "role": "user",
+                                    "content": f"Based on this analysis:\n{frame_analysis}\nGenerate an engaging comment."
                                 }
                             ],
                             max_tokens=100,
-                            temperature=0.5
-                        )
-                        generated_comment = comment_response.choices[0].message.content.strip()
-                        word_count = len(generated_comment.split())
-                    
-                    logger.info(f"Generated comment ({word_count} words): {generated_comment}")
-                    estimated_duration = word_count / 2.5  # 2.5 words per second
-                    logger.info(f"Estimated narration duration: {estimated_duration:.1f}s")
-                    
-                    # Store the comment in context
-                    self.context["comment"] = generated_comment
-                    return True
-                    
-                except Exception as deepseek_error:
-                    logger.error(f"DeepSeek API error: {type(deepseek_error).__name__} - {str(deepseek_error)}")
-                    raise
-                
-            except Exception as api_error:
-                logger.error(f"API error: {type(api_error).__name__} - {str(api_error)}")
-                self.context["error"] = f"API error: {str(api_error)}"
-                raise
+                            temperature=0.7
+                        ),
+                        timeout=15  # 15 second timeout for OpenAI
+                    )
+                    generated_comment = comment_response.choices[0].message.content.strip()
+
+            except Exception as e:
+                logger.error(f"Vision API or text generation failed: {str(e)}")
+                raise Exception("Failed to generate content analysis")
+
+            # Verify and clean up comment
+            word_count = len(generated_comment.split())
+            if word_count > max_words:
+                generated_comment = ' '.join(generated_comment.split()[:max_words])
+                word_count = max_words
             
+            logger.info(f"Generated comment ({word_count} words): {generated_comment}")
+            estimated_duration = word_count / 2.5
+            logger.info(f"Estimated narration duration: {estimated_duration:.1f}s")
+            
+            self.context["comment"] = generated_comment
+            return True
+
         except Exception as e:
             logger.error(f"Analysis failed: {type(e).__name__} - {str(e)}")
             self.context["error"] = f"Analysis failed: {str(e)}"
@@ -603,7 +625,12 @@ class TwitterVideoProcessor:
             animation_task.cancel()
 
     def clean_text_for_narration(self, text: str) -> str:
-        """Clean text by removing hashtags, emojis, and numbers for better narration"""
+        """Clean text by removing quotes, hashtags, emojis, and numbers for better narration"""
+        # Remove quotes (both single and double)
+        text = text.strip('"\'')
+        text = re.sub(r'[""""]', '', text)  # Remove fancy quotes
+        text = re.sub(r'[\''']', '', text)  # Remove fancy apostrophes
+        
         # Remove hashtags
         text = re.sub(r'#\w+', '', text)
         
@@ -613,9 +640,13 @@ class TwitterVideoProcessor:
         # Remove numbers
         text = re.sub(r'\d+', '', text)
         
+        # Remove square brackets and their contents (like [pause])
+        text = re.sub(r'\[.*?\]', '', text)
+        
         # Clean up extra spaces and punctuation
         text = re.sub(r'\s+', ' ', text)
         text = re.sub(r'\s+([.,!?])', r'\1', text)
+        text = re.sub(r'[\(\)]', '', text)  # Remove parentheses
         
         return text.strip()
 
@@ -686,30 +717,97 @@ class TwitterVideoProcessor:
             logger.error(f"Error saving output video: {e}")
             return self.context["output_video_path"]
 
-    async def cleanup_resources(self):
-        """Clean up all resources including Cloudinary"""
+    async def verify_cleanup(self) -> bool:
+        """Verify all resources have been properly cleaned up"""
+        cleanup_success = True
+        
+        # 1. Verify Cloudinary resources
         try:
-            # Clean up Cloudinary resources and verify
-            cleanup_success = await self.verify_cloudinary_cleanup()
-            if not cleanup_success:
-                logger.warning("Some Cloudinary resources may not have been cleaned up properly")
-            
-            # Add a delay to ensure Cloudinary operations complete
-            await asyncio.sleep(5)
-            
-            # Clean up temporary directory
-            if self.temp_dir and os.path.exists(self.temp_dir):
-                shutil.rmtree(self.temp_dir)
-                logger.info(f"Cleaned up temporary directory: {self.temp_dir}")
+            for resource_id, resource_type in list(self.context["cloudinary_resources_tracked"]):
+                try:
+                    # Try to get the resource - should raise NotFound if cleaned
+                    cloudinary.api.resource(resource_id, resource_type=resource_type)
+                    # If we get here, resource still exists - try to clean it
+                    logger.warning(f"Found uncleaned resource {resource_id}, attempting cleanup...")
+                    cloudinary.uploader.destroy(resource_id, resource_type=resource_type)
+                except cloudinary.api.NotFound:
+                    logger.info(f"Verified cleanup of {resource_id}")
+                except Exception as e:
+                    logger.error(f"Error verifying/cleaning resource {resource_id}: {e}")
+                    cleanup_success = False
         except Exception as e:
-            logger.error(f"Error in cleanup: {e}")
+            logger.error(f"Error in Cloudinary cleanup verification: {e}")
+            cleanup_success = False
+
+        # 2. Verify local directories
+        local_paths = [
+            self.temp_dir,
+            os.path.join('/tmp', 'outputs'),
+            os.path.join(self.temp_dir, "downloads"),
+            os.path.join(self.temp_dir, "audio_output")
+        ]
+        
+        for path in local_paths:
+            if path and os.path.exists(path):
+                try:
+                    shutil.rmtree(path, ignore_errors=True)
+                    if os.path.exists(path):
+                        logger.error(f"Failed to remove directory: {path}")
+                        cleanup_success = False
+                    else:
+                        logger.info(f"Verified cleanup of {path}")
+                except Exception as e:
+                    logger.error(f"Error cleaning up {path}: {e}")
+                    cleanup_success = False
+
+        return cleanup_success
+
+    async def cleanup_resources(self):
+        """Clean up all resources including Cloudinary and local files"""
+        try:
+            logger.info("Starting cleanup process...")
+            
+            # 1. Clean up Cloudinary resources first
+            for resource_id, resource_type in list(self.context["cloudinary_resources_tracked"]):
+                try:
+                    cloudinary.uploader.destroy(resource_id, resource_type=resource_type)
+                    logger.info(f"Cleaned up Cloudinary resource: {resource_id} ({resource_type})")
+                except cloudinary.api.NotFound:
+                    logger.info(f"Resource already cleaned up: {resource_id} ({resource_type})")
+                except Exception as e:
+                    logger.error(f"Error cleaning up Cloudinary resource {resource_id}: {e}")
+            
+            # 2. Clean up all local directories
+            local_paths = [
+                self.temp_dir,
+                os.path.join('/tmp', 'outputs'),
+                os.path.join(self.temp_dir, "downloads"),
+                os.path.join(self.temp_dir, "audio_output")
+            ]
+            
+            for path in local_paths:
+                if path and os.path.exists(path):
+                    try:
+                        shutil.rmtree(path, ignore_errors=True)
+                        logger.info(f"Cleaned up directory: {path}")
+                    except Exception as e:
+                        logger.error(f"Error cleaning up directory {path}: {e}")
+            
+            # 3. Verify cleanup
+            cleanup_success = await self.verify_cleanup()
+            if not cleanup_success:
+                logger.warning("Some resources may not have been properly cleaned up")
+            else:
+                logger.info("All resources cleaned up successfully")
+            
+        except Exception as e:
+            logger.error(f"Error in cleanup process: {e}")
             raise
 
     async def add_padding_and_frame(self, video_path: str, message_obj) -> str:
-        """Add padding to make video reel-sized (9:16) and add white frame using Cloudinary"""
+        """Add padding to make video reel-sized (9:16) and add white frame using FFmpeg directly"""
         await message_obj.edit_text("🎨 Formatting video for reels...")
         
-        uploaded_resource_id = None
         try:
             # Get original video dimensions and verify
             probe = ffmpeg.probe(video_path)
@@ -717,7 +815,7 @@ class TwitterVideoProcessor:
             width = int(video_info['width'])
             height = int(video_info['height'])
             
-            # Store video info like in test processor
+            # Store video info
             self.context["video_info"] = {
                 "original_width": width,
                 "original_height": height,
@@ -726,7 +824,7 @@ class TwitterVideoProcessor:
             
             logger.info(f"Original video dimensions: {width}x{height}")
             
-            # Calculate target dimensions exactly like test processor
+            # Calculate target dimensions
             if height > width:
                 target_width = width + 40
                 target_height = int((target_width * 16) / 9)
@@ -736,98 +834,73 @@ class TwitterVideoProcessor:
             
             logger.info(f"Target dimensions: {target_width}x{target_height}")
             
-            # Upload with test processor's exact settings
-            upload_result = cloudinary.uploader.upload(
-                video_path,
-                resource_type="video",
-                transformation=[
-                    {
-                        'width': target_width,
-                        'height': target_height,
-                        'crop': 'pad',
-                        'background': 'white'
-                    }
-                ],
-                eager_async=False,
-                timeout=60
-            )
-            
-            uploaded_resource_id = upload_result['public_id']
-            self.context["cloudinary_resources"].append(uploaded_resource_id)
+            # Create padded video using FFmpeg directly
             padded_video = os.path.join(self.temp_dir, "padded_video.mp4")
             
-            # Use test processor's optimized FFmpeg settings
+            # Use FFmpeg to add padding and preserve audio
             stream = (
                 ffmpeg
-                .input(upload_result['secure_url'])
-                .output(padded_video, 
-                       acodec='copy', 
-                       vcodec='copy',
-                       movflags='+faststart',
+                .input(video_path)
+                .filter('pad', 
+                       width=target_width,
+                       height=target_height,
+                       x='(out_w-in_w)/2',
+                       y='(out_h-in_h)/2',
+                       color='white')
+                .output(padded_video,
+                       acodec='copy',  # Copy audio stream without re-encoding
+                       vcodec='libx264',
                        preset='ultrafast',
-                       threads='auto'
-                )
+                       movflags='+faststart')
                 .overwrite_output()
             )
             
-            # Run with test processor's timeout
-            await asyncio.wait_for(
-                self.run_ffmpeg_async(stream),
-                timeout=300
-            )
+            # Run FFmpeg command
+            await self.run_ffmpeg_async(stream)
             
-            # Verify with test processor's strict checks
+            # Verify the output
+            if not os.path.exists(padded_video):
+                raise Exception("Failed to create padded video")
+            
+            # Verify format
             format_info = self.verify_video_format(padded_video)
-            if format_info:
-                if not format_info["is_reel_ratio"]:
-                    logger.warning("Padded video does not have correct reel ratio")
-                    if abs(format_info["aspect_ratio"] - 16/9) > 0.1:
-                        logger.info("Attempting to fix aspect ratio...")
-                        fixed_video = os.path.join(self.temp_dir, "fixed_video.mp4")
-                        fix_stream = (
-                            ffmpeg
-                            .input(padded_video)
-                            .filter('scale', width='-1', height='1351')
-                            .output(fixed_video, 
-                                   acodec='copy',
-                                   preset='ultrafast',
-                                   threads='auto'
-                            )
-                            .overwrite_output()
-                        )
-                        await self.run_ffmpeg_async(fix_stream)
-                        padded_video = fixed_video
-            
-            # Clean up immediately like test processor
-            try:
-                cloudinary.uploader.destroy(uploaded_resource_id, resource_type="video")
-                logger.info(f"Cleaned up Cloudinary video resource: {uploaded_resource_id}")
-                self.context["cloudinary_resources"].remove(uploaded_resource_id)
-            except Exception as e:
-                logger.error(f"Error cleaning up Cloudinary video resource {uploaded_resource_id}: {e}")
+            if format_info and not format_info["is_reel_ratio"]:
+                logger.warning("Padded video does not have correct reel ratio")
+                if abs(format_info["aspect_ratio"] - 16/9) > 0.1:
+                    logger.info("Attempting to fix aspect ratio...")
+                    fixed_video = os.path.join(self.temp_dir, "fixed_video.mp4")
+                    fix_stream = (
+                        ffmpeg
+                        .input(padded_video)
+                        .filter('scale', width='-1', height='1351')
+                        .output(fixed_video,
+                               acodec='copy',  # Preserve audio
+                               preset='ultrafast',
+                               movflags='+faststart')
+                        .overwrite_output()
+                    )
+                    await self.run_ffmpeg_async(fix_stream)
+                    padded_video = fixed_video
             
             return padded_video
                 
         except Exception as e:
-            if uploaded_resource_id:
-                try:
-                    cloudinary.uploader.destroy(uploaded_resource_id, resource_type="video")
-                    logger.info(f"Cleaned up Cloudinary video resource on error: {uploaded_resource_id}")
-                    if uploaded_resource_id in self.context["cloudinary_resources"]:
-                        self.context["cloudinary_resources"].remove(uploaded_resource_id)
-                except Exception as cleanup_error:
-                    logger.error(f"Error cleaning up Cloudinary video resource {uploaded_resource_id}: {cleanup_error}")
-            
             logger.error(f"Error adding padding: {e}")
             raise
 
     async def show_progress_animation(self, message_obj, animation_key: str, duration: float = None):
         """Show progress animation with optional duration"""
-        animation_task = asyncio.create_task(self.animate_loading(message_obj, animation_key))
-        if duration:
-            await asyncio.sleep(duration)
-            animation_task.cancel()
-        return animation_task
+        try:
+            animation_task = asyncio.create_task(self.animate_loading(message_obj, animation_key))
+            if duration:
+                try:
+                    await asyncio.wait_for(animation_task, timeout=duration)
+                except asyncio.TimeoutError:
+                    pass
+            return animation_task
+        except Exception as e:
+            logger.debug(f"Progress animation creation failed: {e}")
+            return None
 
     async def merge_audio_video(self, message_obj) -> bool:
         """Merge audio with video using FFmpeg with proper audio ducking"""
@@ -856,30 +929,28 @@ class TwitterVideoProcessor:
                         self.context["error"] = "Padded video file not found"
                         return False
                     
-                    # Get video duration
+                    # Check if video has audio stream
                     video_probe = ffmpeg.probe(padded_video)
-                    video_info = next(s for s in video_probe['streams'] if s['codec_type'] == 'video')
-                    video_duration = float(video_info.get('duration', 0))
+                    has_audio = any(stream['codec_type'] == 'audio' for stream in video_probe['streams'])
                     
-                    # Get audio duration
-                    audio_probe = ffmpeg.probe(self.context["audio_path"])
-                    audio_info = next(s for s in audio_probe['streams'] if s['codec_type'] == 'audio')
-                    audio_duration = float(audio_info.get('duration', 0))
-                    
-                    logger.info(f"Video duration: {video_duration}s, Audio duration: {audio_duration}s")
-                    
-                    # Mix audio streams with proper settings
+                    # Create FFmpeg command based on whether video has audio
                     video_stream = ffmpeg.input(padded_video)
-                    video_audio = video_stream.audio.filter('volume', 0.3)  # 30% volume
-                    narration_audio = ffmpeg.input(self.context["audio_path"]).filter('volume', 1.0)  # 100% volume
+                    narration_stream = ffmpeg.input(self.context["audio_path"])
                     
-                    mixed_audio = ffmpeg.filter(
-                        [video_audio, narration_audio],
-                        'amix',
-                        inputs=2,
-                        duration='first',
-                        dropout_transition=0.5
-                    )
+                    if has_audio:
+                        logger.info("Video has audio stream, mixing with narration")
+                        video_audio = video_stream.audio.filter('volume', 0.3)
+                        narration_audio = narration_stream.filter('volume', 1.0)
+                        mixed_audio = ffmpeg.filter(
+                            [video_audio, narration_audio],
+                            'amix',
+                            inputs=2,
+                            duration='first',
+                            dropout_transition=0.5
+                        )
+                    else:
+                        logger.info("Video has no audio stream, using narration only")
+                        mixed_audio = narration_stream.filter('volume', 1.0)
                     
                     # Create the output stream with optimized settings
                     stream = (
@@ -953,36 +1024,49 @@ class TwitterVideoProcessor:
             
             # Clean text for narration
             narration_text = self.clean_text_for_narration(comment)
-            logger.info(f"Cleaned text for narration: {narration_text}")
+            logger.info(f"Original text for narration: {narration_text}")
             
             if not narration_text:
                 logger.error("No text available for narration")
                 self.context["error"] = "No text available for narration"
                 return False
-            
+
+            # Create output directory in temp_dir
+            output_dir = os.path.join(self.temp_dir, "audio_output")
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Configure voice parameters
+            voice_params = {
+                'name': 'en-GB-Journey-O',
+                'language_codes': ['en-GB']
+            }
+
+            # Configure synthesis input
             synthesis_input = texttospeech.SynthesisInput(text=narration_text)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="en-US",
-                name="en-US-Neural2-F",  # Using a female voice
-                ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3,
-                speaking_rate=1.0,
-                pitch=0.0,
-                volume_gain_db=2.0
-            )
             
-            response = tts_client.synthesize_speech(
+            # Configure voice
+            voice = texttospeech.VoiceSelectionParams(
+                language_code=voice_params['language_codes'][0],
+                name=voice_params['name']
+            )
+
+            # Configure audio
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.LINEAR16
+            )
+
+            # Generate speech
+            response = self.tts_client.synthesize_speech(
                 input=synthesis_input,
                 voice=voice,
                 audio_config=audio_config
             )
-            
-            audio_path = os.path.join(self.temp_dir, "narration.mp3")
+
+            # Save the audio file
+            audio_path = os.path.join(output_dir, f"{voice_params['name']}.wav")
             with open(audio_path, "wb") as out:
                 out.write(response.audio_content)
-            
+
             # Store the audio path in context
             self.context["audio_path"] = audio_path
             
@@ -1021,7 +1105,7 @@ class TwitterVideoProcessor:
                     cloudinary.uploader.destroy(resource_id, resource_type=resource_type)
                     logger.info(f"Cleaned up remaining resource: {resource_id} ({resource_type})")
                 except cloudinary.api.NotFound:
-                    logger.info(f"Resource already cleaned up: {resource_id} ({resource_type})")
+                    logger.info(f"Verified cleanup of {resource_id} ({resource_type})")
                 except Exception as e:
                     logger.error(f"Error cleaning up resource {resource_id}: {e}")
             
@@ -1043,6 +1127,7 @@ class TwitterVideoProcessor:
 async def process_tweet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main handler for processing tweet URLs"""
     processor = None
+    cleanup_task = None
     try:
         message = await update.message.reply_text("✨ Let's create something amazing! Starting the magic... 🎬")
         processor = TwitterVideoProcessor()
@@ -1146,18 +1231,63 @@ async def process_tweet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             saved_video_path = processor.save_output_video()
             logger.info(f"Test video saved to: {saved_video_path}")
             
+            # Check file size and compress if needed
+            file_size = os.path.getsize(saved_video_path) / (1024 * 1024)  # Size in MB
+            if file_size > 50:  # If larger than 50MB, compress
+                await message.edit_text("📦 Video is large, optimizing for Telegram...")
+                compressed_path = os.path.join(os.path.dirname(saved_video_path), "compressed_video.mp4")
+                compress_stream = (
+                    ffmpeg
+                    .input(saved_video_path)
+                    .output(compressed_path, 
+                           **{'c:v': 'libx264', 
+                              'crf': '28',  # Adjust quality (23-28 is good range)
+                              'preset': 'faster',
+                              'c:a': 'aac',
+                              'b:a': '128k',
+                              'movflags': '+faststart'})
+                    .overwrite_output()
+                )
+                await processor.run_ffmpeg_async(compress_stream)
+                saved_video_path = compressed_path
+            
             # Upload animation
             upload_task = asyncio.create_task(processor.animate_loading(message, 'upload'))
             try:
-                await update.message.reply_video(
-                    video=open(saved_video_path, 'rb'),
-                    caption=f"✨ Your masterpiece is ready! 🎉\n\n"
-                           f"💭 Generated comment:\n{processor.context['comment']}\n\n"
-                           f"🎨 Created with love by your Video Assistant 🤖"
+                # Increase timeout for large files
+                await asyncio.wait_for(
+                    update.message.reply_video(
+                        video=open(saved_video_path, 'rb'),
+                        caption=f"✨ Your masterpiece is ready! 🎉\n\n"
+                               f"💭 Generated comment:\n{processor.context['comment']}\n\n"
+                               f"🎨 Created with love by your Video Assistant 🤖",
+                        read_timeout=120,
+                        write_timeout=120,
+                        connect_timeout=60,
+                        pool_timeout=120
+                    ),
+                    timeout=300  # 5 minutes total timeout
                 )
                 upload_task.cancel()
                 await message.edit_text("✅ Processing completed successfully! Check out your video above ⬆️")
                 logger.info("All processing completed successfully!")
+                
+                # Clean up immediately after video is sent
+                logger.info("Starting immediate cleanup after video sent...")
+                if processor:
+                    await processor.cleanup_resources()
+                # Clean up output directory if it exists
+                if 'saved_video_path' in locals():
+                    output_dir = os.path.dirname(saved_video_path)
+                    if os.path.exists(output_dir):
+                        shutil.rmtree(output_dir, ignore_errors=True)
+                        logger.info(f"Cleaned up output directory: {output_dir}")
+                
+            except asyncio.TimeoutError:
+                upload_task.cancel()
+                await message.edit_text("⚠️ Video upload timed out. The file might be too large for Telegram.")
+                logger.error("Video upload timed out")
+                raise
             except Exception as e:
                 upload_task.cancel()
                 processor.context["error"] = f"Failed to send video: {str(e)}"
@@ -1190,16 +1320,15 @@ async def process_tweet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.edit_text(f"❌ An error occurred: {error_context}\nPlease try again.")
         logger.error(f"Processing error: {e}", exc_info=True)
     finally:
-        # Ensure cleanup happens even if processing fails
-        if processor:
-            await processor.cleanup_resources()
-            # Wait for any async cleanup operations
-            await asyncio.sleep(5)
-            # Additional cleanup attempt
-            await processor.verify_cloudinary_cleanup()
-            if processor.temp_dir and os.path.exists(processor.temp_dir):
-                shutil.rmtree(processor.temp_dir)
-                logger.info(f"Cleaned up temporary directory: {processor.temp_dir}")
+        try:
+            if processor:
+                await processor.cleanup_resources()
+                # Double-check cleanup success
+                cleanup_success = await processor.verify_cleanup()
+                if not cleanup_success:
+                    logger.warning("Some resources may not have been properly cleaned up")
+        except Exception as e:
+            logger.error(f"Error during final cleanup: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handler for /start command"""
