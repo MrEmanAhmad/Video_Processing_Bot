@@ -25,6 +25,7 @@ import requests
 import atexit
 import sys
 import logging.handlers
+from google.api_core.exceptions import Unauthenticated
 
 # Load environment variables
 load_dotenv()
@@ -181,6 +182,22 @@ def validate_google_credentials(creds_dict: dict) -> bool:
             logger.error("Invalid auth_uri or token_uri format")
             return False
             
+        # Create test credentials to verify format
+        try:
+            test_creds = service_account.Credentials.from_service_account_info(
+                creds_dict,
+                scopes=[
+                    'https://www.googleapis.com/auth/cloud-platform',
+                    'https://www.googleapis.com/auth/cloud-texttospeech'
+                ]
+            )
+            if not test_creds.valid:
+                logger.error("Credentials validation failed - invalid format")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to create test credentials: {e}")
+            return False
+            
         logger.info("✓ Credentials validation passed all checks")
         return True
     except Exception as e:
@@ -260,16 +277,24 @@ try:
             
             # Initialize TTS client
             tts_client = texttospeech.TextToSpeechClient(
-                credentials=credentials,
+                credentials=credentials.with_scopes([
+                    'https://www.googleapis.com/auth/cloud-platform',
+                    'https://www.googleapis.com/auth/cloud-texttospeech'
+                ]),
                 client_options={
-                    "api_endpoint": "texttospeech.googleapis.com"
+                    "api_endpoint": "texttospeech.googleapis.com",
+                    "quota_project_id": creds_dict['project_id']
                 }
             )
             
-            # Test the client
+            # Test the client with better error handling
             try:
-                tts_client.list_voices()
-                logger.info("✓ TTS client initialized and tested successfully")
+                voices = tts_client.list_voices()
+                voice_count = len(voices.voices) if voices and hasattr(voices, 'voices') else 0
+                logger.info(f"✓ TTS client initialized and tested successfully. Found {voice_count} voices.")
+            except Unauthenticated as auth_error:
+                logger.error(f"Authentication failed: {auth_error}")
+                raise Exception(f"TTS client authentication failed: {auth_error}")
             except Exception as e:
                 logger.error(f"Failed to test TTS client: {e}")
                 raise
