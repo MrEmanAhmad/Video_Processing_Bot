@@ -482,7 +482,7 @@ class TwitterVideoProcessor:
                 pass
 
     async def download_tweet(self, url: str, message_obj) -> bool:
-        """Download tweet video and extract metadata."""
+        """Download tweet video using yt-dlp."""
         try:
             self.context["stage"] = "downloading"
             logger.info("Starting download...")
@@ -494,11 +494,7 @@ class TwitterVideoProcessor:
             # Convert x.com to twitter.com
             url = url.replace('x.com', 'twitter.com')
 
-            # Extract tweet ID
-            tweet_id = url.split('/')[-1].split('?')[0]
-            logger.info(f"Extracted tweet ID: {tweet_id}")
-
-            # Configure yt-dlp with minimal settings
+            # Configure yt-dlp with optimized settings
             options = {
                 'outtmpl': os.path.join(downloads_dir, '%(id)s.%(ext)s'),
                 'format': 'best[ext=mp4]/best',
@@ -508,16 +504,26 @@ class TwitterVideoProcessor:
                 'extract_flat': True,
                 'socket_timeout': 30,
                 'retries': 10,
-                'fragment_retries': 10
+                'fragment_retries': 10,
+                'ignoreerrors': True,
+                'no_check_certificate': True,
+                'cookiesfrombrowser': ('chrome',),  # Try to use Chrome cookies if available
             }
 
             try:
                 with yt_dlp.YoutubeDL(options) as ydl:
                     logger.info("Downloading video...")
                     info = ydl.extract_info(url, download=True)
+                    
+                    if not info:
+                        raise Exception("Failed to extract video information")
+                        
                     video_filename = ydl.prepare_filename(info)
                     video_filename = os.path.splitext(video_filename)[0] + ".mp4"
                     
+                    if not os.path.exists(video_filename):
+                        raise Exception("Video file not found after download")
+                        
                     # Store the paths and metadata in context
                     self.context["video_path"] = video_filename
                     self.context["tweet_text"] = info.get('description', 'No text found')
@@ -530,10 +536,10 @@ class TwitterVideoProcessor:
                 error_message = str(e)
                 logger.error(f"Download failed: {error_message}")
                 
-                if "Unable to extract uploader id" in error_message:
-                    await message_obj.edit_text("⚠️ This tweet might be from a private account or has been deleted.")
+                if "Video unavailable" in error_message:
+                    await message_obj.edit_text("⚠️ This video is unavailable or has been deleted.")
                 else:
-                    await message_obj.edit_text("⚠️ Failed to download the video. The tweet might be unavailable or protected.")
+                    await message_obj.edit_text("⚠️ Failed to download the video. Please try again later.")
                 return False
 
         except Exception as e:
