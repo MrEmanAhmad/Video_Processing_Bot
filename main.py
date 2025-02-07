@@ -304,15 +304,15 @@ class TwitterVideoProcessor:
         # Initialize OpenAI client with stricter timeouts
         self.openai_client = openai.OpenAI(
             api_key=os.getenv('OPENAI_API_KEY'),
-            timeout=15.0,  # Reduced from 30
-            max_retries=2  # Reduced from 3
+            timeout=15.0,
+            max_retries=2
         )
         # Initialize DeepSeek client with stricter timeouts
         self.deepseek_client = openai.OpenAI(
             api_key=os.getenv('DEEPSEEK_API_KEY'),
             base_url="https://api.deepseek.com/v1",
-            timeout=15.0,  # Reduced from 30
-            max_retries=1  # Reduced from 3
+            timeout=15.0,
+            max_retries=1
         )
         # Initialize TTS client
         try:
@@ -345,7 +345,27 @@ class TwitterVideoProcessor:
                 
                 # Initialize the TTS client with the credentials
                 self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-                logger.info("✓ TTS client initialized successfully")
+                
+                # Test the client with a simple API call
+                try:
+                    logger.info("Testing TTS client with API call...")
+                    test_input = texttospeech.SynthesisInput(text="Test.")
+                    test_voice = texttospeech.VoiceSelectionParams(
+                        language_code="en-US",
+                        name="en-US-Standard-A"
+                    )
+                    test_audio_config = texttospeech.AudioConfig(
+                        audio_encoding=texttospeech.AudioEncoding.LINEAR16
+                    )
+                    self.tts_client.synthesize_speech(
+                        input=test_input,
+                        voice=test_voice,
+                        audio_config=test_audio_config
+                    )
+                    logger.info("✓ TTS client test call successful")
+                except Exception as e:
+                    logger.error(f"TTS client test call failed: {str(e)}")
+                    raise
                 
             except json.JSONDecodeError as je:
                 logger.error(f"Failed to parse credentials JSON: {str(je)}")
