@@ -147,7 +147,10 @@ def validate_google_credentials(creds_dict: dict) -> bool:
     """Validate Google Cloud credentials dictionary."""
     try:
         # Check required fields
-        required_fields = ['type', 'project_id', 'private_key', 'client_email']
+        required_fields = [
+            'type', 'project_id', 'private_key_id', 'private_key',
+            'client_email', 'client_id', 'auth_uri', 'token_uri'
+        ]
         missing_fields = [field for field in required_fields if field not in creds_dict]
         if missing_fields:
             logger.error(f"Missing required fields in credentials: {missing_fields}")
@@ -169,10 +172,16 @@ def validate_google_credentials(creds_dict: dict) -> bool:
             return False
             
         # Validate client email format
-        if not creds_dict['client_email'] or '@' not in creds_dict['client_email']:
-            logger.error("Invalid client email format")
+        if not creds_dict['client_email'] or '@' not in creds_dict['client_email'] or not creds_dict['client_email'].endswith('.gserviceaccount.com'):
+            logger.error("Invalid client email format - must be a valid service account email")
             return False
             
+        # Validate URIs
+        if not creds_dict['auth_uri'].startswith('https://') or not creds_dict['token_uri'].startswith('https://'):
+            logger.error("Invalid auth_uri or token_uri format")
+            return False
+            
+        logger.info("✓ Credentials validation passed all checks")
         return True
     except Exception as e:
         logger.error(f"Error validating credentials: {str(e)}")
@@ -241,16 +250,20 @@ try:
             logger.info(f"Creating credentials for project: {creds_dict['project_id']}")
             credentials = service_account.Credentials.from_service_account_info(
                 creds_dict,
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
+                scopes=[
+                    'https://www.googleapis.com/auth/cloud-platform',
+                    'https://www.googleapis.com/auth/cloud-language',
+                    'https://www.googleapis.com/auth/cloud-texttospeech'
+                ]
             )
             logger.info("✓ Credentials object created successfully")
             
             # Initialize client with credentials
             logger.info("Initializing Text-to-Speech client...")
-            client_options = {
-                "api_endpoint": "texttospeech.googleapis.com",
-                "quota_project_id": creds_dict['project_id']
-            }
+            client_options = texttospeech.ClientOptions(
+                api_endpoint="texttospeech.googleapis.com",
+                quota_project_id=creds_dict['project_id']
+            )
             logger.info(f"Client options: {client_options}")
             
             tts_client = texttospeech.TextToSpeechClient(
@@ -379,7 +392,11 @@ class TwitterVideoProcessor:
                     # Create credentials object directly from dictionary
                     credentials = service_account.Credentials.from_service_account_info(
                         creds_dict,
-                        scopes=['https://www.googleapis.com/auth/cloud-platform']
+                        scopes=[
+                            'https://www.googleapis.com/auth/cloud-platform',
+                            'https://www.googleapis.com/auth/cloud-language',
+                            'https://www.googleapis.com/auth/cloud-texttospeech'
+                        ]
                     )
                     self.tts_client = texttospeech.TextToSpeechClient(
                         credentials=credentials,
