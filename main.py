@@ -204,9 +204,6 @@ try:
                 json.dump(creds_dict, f, indent=2)
             logger.info(f"Credentials file created successfully at {credentials_path}")
             
-            # Set environment variable to point to the file
-            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-            
             # Create credentials object directly from dictionary
             credentials = service_account.Credentials.from_service_account_info(creds_dict)
             
@@ -214,8 +211,16 @@ try:
             tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
             
             # Test the credentials with a simple API call
-            voices = tts_client.list_voices()
-            logger.info("✓ Google Cloud TTS client initialized and verified successfully")
+            try:
+                voices = tts_client.list_voices()
+                logger.info("✓ Google Cloud TTS client initialized and verified successfully")
+            except Exception as e:
+                logger.error(f"Failed to verify credentials: {str(e)}")
+                # Try reinitializing with file-based approach
+                credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                voices = tts_client.list_voices()
+                logger.info("✓ Google Cloud TTS client initialized with file-based credentials")
             
         except json.JSONDecodeError as je:
             logger.error("✗ Failed to parse JSON credentials")
@@ -306,16 +311,22 @@ class TwitterVideoProcessor:
                         json.dump(creds_dict, f, indent=2)
                     logger.info(f"Credentials file created successfully at {credentials_path}")
                     
-                    # Set environment variable
-                    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-                    
-                    # Create credentials and initialize client
+                    # Create credentials object directly from dictionary
                     credentials = service_account.Credentials.from_service_account_info(creds_dict)
                     self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
                     
                     # Verify credentials
-                    self.tts_client.list_voices()
-                    logger.info("✓ TTS client initialized with environment credentials")
+                    try:
+                        self.tts_client.list_voices()
+                        logger.info("✓ TTS client initialized with environment credentials")
+                    except Exception as e:
+                        logger.error(f"Failed to verify credentials: {str(e)}")
+                        # Try reinitializing with file-based approach
+                        credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                        self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                        self.tts_client.list_voices()
+                        logger.info("✓ TTS client initialized with file-based credentials")
+                        
                 except json.JSONDecodeError as je:
                     logger.error("✗ Failed to parse JSON credentials")
                     logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
