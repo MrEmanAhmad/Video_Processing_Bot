@@ -301,6 +301,17 @@ class TwitterVideoProcessor:
     def __init__(self):
         self.temp_dir = os.path.join('/tmp', f'twitter_processor_{int(time.time())}')
         os.makedirs(self.temp_dir, exist_ok=True)
+        
+        # Initialize context dictionary first
+        self.context = {
+            "temp_dir": self.temp_dir,
+            "cloudinary_resources": [],  # Track resources for cleanup
+            "error": None,  # Track any errors
+            "stage": "initialized",  # Track current processing stage
+            "watermark": "🎥 Created by @AutomatorByMani | Share & Enjoy!",  # Default watermark text
+            "cloudinary_resources_tracked": set()  # Track all Cloudinary resources with types
+        }
+        
         # Initialize OpenAI client with stricter timeouts
         self.openai_client = openai.OpenAI(
             api_key=os.getenv('OPENAI_API_KEY'),
@@ -314,79 +325,9 @@ class TwitterVideoProcessor:
             timeout=15.0,
             max_retries=1
         )
+        
         # Initialize TTS client
-        try:
-            creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-            if not creds_json:
-                raise ValueError("Missing GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable")
-            
-            try:
-                # First try parsing as JSON directly
-                creds_dict = json.loads(creds_json)
-                logger.info("Successfully parsed initial JSON")
-                
-                # If this is a Railway variable, it will be in the format {"value": "actual_json_string"}
-                if isinstance(creds_dict, dict) and 'value' in creds_dict:
-                    logger.info("Found Railway-style credentials format")
-                    actual_creds = json.loads(creds_dict['value'])
-                else:
-                    actual_creds = creds_dict
-                
-                logger.info(f"Credential keys found: {list(actual_creds.keys())}")
-                
-                # Create credentials object with explicit scopes
-                credentials = service_account.Credentials.from_service_account_info(
-                    actual_creds,
-                    scopes=[
-                        'https://www.googleapis.com/auth/cloud-platform',
-                        'https://www.googleapis.com/auth/cloud-texttospeech'
-                    ]
-                )
-                
-                # Initialize the TTS client with the credentials
-                self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-                
-                # Test the client with a simple API call
-                try:
-                    logger.info("Testing TTS client with API call...")
-                    test_input = texttospeech.SynthesisInput(text="Test.")
-                    test_voice = texttospeech.VoiceSelectionParams(
-                        language_code="en-US",
-                        name="en-US-Standard-A"
-                    )
-                    test_audio_config = texttospeech.AudioConfig(
-                        audio_encoding=texttospeech.AudioEncoding.LINEAR16
-                    )
-                    self.tts_client.synthesize_speech(
-                        input=test_input,
-                        voice=test_voice,
-                        audio_config=test_audio_config
-                    )
-                    logger.info("✓ TTS client test call successful")
-                except Exception as e:
-                    logger.error(f"TTS client test call failed: {str(e)}")
-                    raise
-                
-            except json.JSONDecodeError as je:
-                logger.error(f"Failed to parse credentials JSON: {str(je)}")
-                raise
-            except Exception as e:
-                logger.error(f"Error initializing TTS client: {str(e)}")
-                raise
-                
-        except Exception as e:
-            logger.error(f"Failed to initialize TTS client: {e}")
-            raise
-            
-        # Initialize context dictionary for workflow tracking
-        self.context = {
-            "temp_dir": self.temp_dir,
-            "cloudinary_resources": [],  # Track resources for cleanup
-            "error": None,  # Track any errors
-            "stage": "initialized",  # Track current processing stage
-            "watermark": "🎥 Created by @AutomatorByMani | Share & Enjoy!",  # Default watermark text
-            "cloudinary_resources_tracked": set()  # Track all Cloudinary resources with types
-        }
+        self.init_tts_client()
         
         # Keep animations separate from context
         self.loading_animations = {
@@ -434,6 +375,78 @@ class TwitterVideoProcessor:
             ]
         }
         
+    def init_tts_client(self):
+        """Initialize the Google Cloud TTS client"""
+        try:
+            creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+            if not creds_json:
+                raise ValueError("Missing GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable")
+            
+            try:
+                # First try parsing as JSON directly
+                creds_dict = json.loads(creds_json)
+                logger.info("Successfully parsed initial JSON")
+                
+                # If this is a Railway variable, it will be in the format {"value": "actual_json_string"}
+                if isinstance(creds_dict, dict) and 'value' in creds_dict:
+                    logger.info("Found Railway-style credentials format")
+                    actual_creds = json.loads(creds_dict['value'])
+                else:
+                    actual_creds = creds_dict
+                
+                logger.info(f"Credential keys found: {list(actual_creds.keys())}")
+                
+                # Create credentials object with explicit scopes
+                credentials = service_account.Credentials.from_service_account_info(
+                    actual_creds,
+                    scopes=[
+                        'https://www.googleapis.com/auth/cloud-platform',
+                        'https://www.googleapis.com/auth/cloud-texttospeech'
+                    ]
+                )
+                
+                # Initialize the TTS client with the credentials
+                self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                logger.info("✓ TTS client initialized")
+                
+            except json.JSONDecodeError as je:
+                logger.error(f"Failed to parse credentials JSON: {str(je)}")
+                self.tts_client = None
+            except Exception as e:
+                logger.error(f"Error initializing TTS client: {str(e)}")
+                self.tts_client = None
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize TTS client: {e}")
+            self.tts_client = None
+
+    async def test_tts_client(self) -> bool:
+        """Test the TTS client with a simple API call"""
+        if not self.tts_client:
+            logger.error("TTS client not initialized")
+            return False
+            
+        try:
+            logger.info("Testing TTS client with API call...")
+            test_input = texttospeech.SynthesisInput(text="Test.")
+            test_voice = texttospeech.VoiceSelectionParams(
+                language_code="en-US",
+                name="en-US-Standard-A"
+            )
+            test_audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.LINEAR16
+            )
+            self.tts_client.synthesize_speech(
+                input=test_input,
+                voice=test_voice,
+                audio_config=test_audio_config
+            )
+            logger.info("✓ TTS client test call successful")
+            return True
+        except Exception as e:
+            logger.error(f"TTS client test call failed: {str(e)}")
+            return False
+
     async def animate_loading(self, message_obj, animation_key: str, duration: float = 2.0):
         """Animate loading message while processing"""
         try:
@@ -1088,6 +1101,11 @@ class TwitterVideoProcessor:
         try:
             await message_obj.edit_text("🔊 Generating speech...")
             
+            # Test TTS client before proceeding
+            if not await self.test_tts_client():
+                self.context["error"] = "TTS client authentication failed"
+                return False
+                
             # Get comment from context
             comment = self.context.get("comment")
             if not comment:
