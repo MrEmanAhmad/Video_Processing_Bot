@@ -317,81 +317,47 @@ class TwitterVideoProcessor:
         # Initialize TTS client
         try:
             creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
-            if creds_json:
-                try:
-                    # If the value is a dict with a 'value' key (Railway format), extract the value
-                    try:
-                        creds_dict = json.loads(creds_json)
-                        if isinstance(creds_dict, dict) and 'value' in creds_dict:
-                            creds_json = creds_dict['value']
-                    except:
-                        pass  # If this fails, continue with original string
-                    
-                    # Clean up the JSON string if needed
-                    creds_json = creds_json.strip('"').replace('\\"', '"')  # Remove outer quotes and unescape inner quotes
-                    
-                    # Try parsing with different methods
-                    try:
-                        # First try normal parsing
-                        creds_dict = json.loads(creds_json)
-                    except json.JSONDecodeError:
-                        try:
-                            # Try with strict=False to handle control characters
-                            creds_dict = json.loads(creds_json, strict=False)
-                        except json.JSONDecodeError as je:
-                            # If still failing, try to clean up the string more aggressively
-                            creds_json = creds_json.encode().decode('unicode_escape')
-                            creds_dict = json.loads(creds_json, strict=False)
-                    
-                    # Verify required fields
-                    required_fields = ['type', 'project_id', 'private_key', 'client_email']
-                    missing_fields = [field for field in required_fields if field not in creds_dict]
-                    if missing_fields:
-                        raise ValueError(f"Missing required fields in credentials: {missing_fields}")
-                    
-                    # Create credentials directory if it doesn't exist
-                    credentials_dir = '/app/credentials'
-                    os.makedirs(credentials_dir, exist_ok=True)
-                    
-                    # Write credentials to file for persistence
-                    credentials_path = os.path.join(credentials_dir, 'google_credentials.json')
-                    with open(credentials_path, 'w') as f:
-                        json.dump(creds_dict, f, indent=2)
-                    logger.info(f"Credentials file created successfully at {credentials_path}")
-                    
-                    # Create credentials object directly from dictionary
-                    credentials = service_account.Credentials.from_service_account_info(
-                        creds_dict,
-                        scopes=[
-                            'https://www.googleapis.com/auth/cloud-platform',
-                            'https://www.googleapis.com/auth/cloud-texttospeech'
-                        ]
-                    )
-                    logger.info("✓ TTS client initialized with environment credentials")
-                    
-                except json.JSONDecodeError as je:
-                    logger.error("✗ Failed to parse JSON credentials")
-                    logger.error(f"JSON parsing error at position {je.pos}: {je.msg}")
-                    logger.error(f"Invalid JSON string: {creds_json[:100]}...")  # Log first 100 chars
-                    raise
-                except Exception as e:
-                    logger.error(f"Failed to initialize TTS client from environment: {e}")
-                    raise
-            else:
-                # Try file-based credentials
-                credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', "/app/credentials/google_credentials.json")
-                if os.path.exists(credentials_path):
-                    try:
-                        credentials = service_account.Credentials.from_service_account_file(credentials_path)
-                        logger.info("✓ TTS client initialized from credentials file")
-                    except Exception as e:
-                        logger.error(f"Failed to initialize from credentials file: {e}")
-                        raise
+            if not creds_json:
+                raise ValueError("Missing GOOGLE_APPLICATION_CREDENTIALS_JSON environment variable")
+            
+            try:
+                # First try parsing as JSON directly
+                creds_dict = json.loads(creds_json)
+                logger.info("Successfully parsed initial JSON")
+                
+                # If this is a Railway variable, it will be in the format {"value": "actual_json_string"}
+                if isinstance(creds_dict, dict) and 'value' in creds_dict:
+                    logger.info("Found Railway-style credentials format")
+                    actual_creds = json.loads(creds_dict['value'])
                 else:
-                    raise Exception("No Google Cloud credentials found")
+                    actual_creds = creds_dict
+                
+                logger.info(f"Credential keys found: {list(actual_creds.keys())}")
+                
+                # Create credentials object with explicit scopes
+                credentials = service_account.Credentials.from_service_account_info(
+                    actual_creds,
+                    scopes=[
+                        'https://www.googleapis.com/auth/cloud-platform',
+                        'https://www.googleapis.com/auth/cloud-texttospeech'
+                    ]
+                )
+                
+                # Initialize the TTS client with the credentials
+                self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                logger.info("✓ TTS client initialized successfully")
+                
+            except json.JSONDecodeError as je:
+                logger.error(f"Failed to parse credentials JSON: {str(je)}")
+                raise
+            except Exception as e:
+                logger.error(f"Error initializing TTS client: {str(e)}")
+                raise
+                
         except Exception as e:
             logger.error(f"Failed to initialize TTS client: {e}")
             raise
+            
         # Initialize context dictionary for workflow tracking
         self.context = {
             "temp_dir": self.temp_dir,
@@ -1206,8 +1172,8 @@ class TwitterVideoProcessor:
                 audio_encoding=texttospeech.AudioEncoding.LINEAR16
             )
 
-            # Generate speech
-            response = tts_client.synthesize_speech(
+            # Generate speech using the instance TTS client
+            response = self.tts_client.synthesize_speech(
                 input=synthesis_input,
                 voice=voice,
                 audio_config=audio_config
