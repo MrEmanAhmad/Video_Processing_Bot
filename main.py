@@ -151,12 +151,22 @@ try:
         try:
             logger.info("🔄 Initializing Google Cloud credentials from environment variable")
             
-            # Clean up the JSON string if needed (remove escaped quotes)
-            creds_json = creds_json.replace('\\"', '"').replace('\\n', '\n')
+            # Clean up the JSON string if needed
+            creds_json = creds_json.strip('"').replace('\\"', '"')  # Remove outer quotes and unescape inner quotes
             
-            # Parse JSON directly from environment variable
+            # Try parsing with different methods
             try:
+                # First try normal parsing
                 creds_dict = json.loads(creds_json)
+            except json.JSONDecodeError:
+                try:
+                    # Try with strict=False to handle control characters
+                    creds_dict = json.loads(creds_json, strict=False)
+                except json.JSONDecodeError as je:
+                    # If still failing, try to clean up the string more aggressively
+                    creds_json = creds_json.encode().decode('unicode_escape')
+                    creds_dict = json.loads(creds_json, strict=False)
+            
                 logger.info("✓ JSON credentials parsed successfully")
                 
                 # Verify required fields
@@ -242,10 +252,22 @@ class TwitterVideoProcessor:
             if creds_json:
                 try:
                     # Clean up the JSON string if needed
-                    creds_json = creds_json.replace('\\"', '"').replace('\\n', '\n')
+                    creds_json = creds_json.strip('"').replace('\\"', '"')  # Remove outer quotes and unescape inner quotes
                     
-                    # Parse JSON and verify required fields
-                    creds_dict = json.loads(creds_json)
+                    # Try parsing with different methods
+                    try:
+                        # First try normal parsing
+                        creds_dict = json.loads(creds_json)
+                    except json.JSONDecodeError:
+                        try:
+                            # Try with strict=False to handle control characters
+                            creds_dict = json.loads(creds_json, strict=False)
+                        except json.JSONDecodeError as je:
+                            # If still failing, try to clean up the string more aggressively
+                            creds_json = creds_json.encode().decode('unicode_escape')
+                            creds_dict = json.loads(creds_json, strict=False)
+                    
+                    # Verify required fields
                     required_fields = ['type', 'project_id', 'private_key', 'client_email']
                     missing_fields = [field for field in required_fields if field not in creds_dict]
                     if missing_fields:
