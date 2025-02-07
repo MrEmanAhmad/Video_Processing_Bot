@@ -149,35 +149,32 @@ try:
     creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
     if creds_json:
         try:
-            # Debug log the credentials initialization
             logger.info("🔄 Initializing Google Cloud credentials from environment variable")
             
-            # Parse JSON directly - it's already in the correct format
+            # Parse JSON directly from environment variable
             creds_dict = json.loads(creds_json)
             logger.info("✓ JSON credentials parsed successfully")
             
-            # Verify required fields
-            required_fields = ['type', 'project_id', 'private_key', 'client_email']
-            missing_fields = [field for field in required_fields if field not in creds_dict]
-            if missing_fields:
-                raise ValueError(f"Missing required fields in credentials: {missing_fields}")
-            logger.debug("All required credential fields present")
+            # Create credentials object directly from dictionary
+            credentials = service_account.Credentials.from_service_account_info(creds_dict)
             
-            # Write credentials to a temporary file
-            temp_creds_file = os.path.join(tempfile.gettempdir(), 'google_credentials_temp.json')
-            with open(temp_creds_file, 'w') as f:
+            # Create credentials directory if it doesn't exist
+            os.makedirs('/app/credentials', exist_ok=True)
+            
+            # Write credentials to file for persistence
+            credentials_path = '/app/credentials/google_credentials.json'
+            with open(credentials_path, 'w') as f:
                 json.dump(creds_dict, f)
-            logger.debug(f"Temporary credentials file created at: {temp_creds_file}")
+            
+            # Set environment variable to point to the file
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
             
             # Initialize client with credentials
-            credentials = service_account.Credentials.from_service_account_file(temp_creds_file)
             tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
             
-            # Clean up temporary file
-            os.remove(temp_creds_file)
-            logger.debug("Temporary credentials file removed")
-            
-            logger.info("✓ Google Cloud TTS client initialized successfully")
+            # Verify credentials with a test API call
+            tts_client.list_voices()  # Test API call
+            logger.info("✓ Google Cloud TTS client initialized and verified successfully")
             
         except json.JSONDecodeError as je:
             logger.error("✗ Failed to parse JSON credentials")
@@ -190,10 +187,12 @@ try:
             
     else:
         # Fallback to file-based credentials
-        credentials_path = "/app/credentials/google_credentials.json"
+        credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', "/app/credentials/google_credentials.json")
         if os.path.exists(credentials_path):
             credentials = service_account.Credentials.from_service_account_file(credentials_path)
             tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+            # Verify credentials
+            tts_client.list_voices()  # Test API call
             logger.info("✓ Google Cloud TTS client initialized from credentials file")
         else:
             logger.error("✗ No Google Cloud credentials found in environment or file system")
@@ -224,18 +223,38 @@ class TwitterVideoProcessor:
         try:
             creds_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
             if creds_json:
-                creds_dict = json.loads(creds_json)
-                temp_creds_file = os.path.join(tempfile.gettempdir(), 'google_credentials_temp.json')
-                with open(temp_creds_file, 'w') as f:
-                    json.dump(creds_dict, f)
-                credentials = service_account.Credentials.from_service_account_file(temp_creds_file)
-                self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
-                os.remove(temp_creds_file)
+                try:
+                    creds_dict = json.loads(creds_json)
+                    # Create credentials directory if it doesn't exist
+                    os.makedirs('/app/credentials', exist_ok=True)
+                    
+                    # Write credentials to file for persistence
+                    credentials_path = '/app/credentials/google_credentials.json'
+                    with open(credentials_path, 'w') as f:
+                        json.dump(creds_dict, f)
+                    
+                    # Set environment variable
+                    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+                    
+                    # Create credentials directly from dictionary
+                    credentials = service_account.Credentials.from_service_account_info(creds_dict)
+                    self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                    
+                    # Verify credentials
+                    self.tts_client.list_voices()
+                    logger.info("✓ TTS client initialized with environment credentials")
+                except Exception as e:
+                    logger.error(f"Failed to initialize TTS client from environment: {e}")
+                    raise
             else:
-                credentials_path = "/app/credentials/google_credentials.json"
+                # Try file-based credentials
+                credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', "/app/credentials/google_credentials.json")
                 if os.path.exists(credentials_path):
                     credentials = service_account.Credentials.from_service_account_file(credentials_path)
                     self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                    # Verify credentials
+                    self.tts_client.list_voices()
+                    logger.info("✓ TTS client initialized from credentials file")
                 else:
                     raise Exception("No Google Cloud credentials found")
         except Exception as e:
