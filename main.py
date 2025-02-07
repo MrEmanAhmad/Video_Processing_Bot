@@ -163,8 +163,18 @@ def validate_google_credentials(creds_dict: dict) -> bool:
             return False
             
         # Validate private key format
-        if not creds_dict['private_key'].startswith('-----BEGIN PRIVATE KEY-----'):
-            logger.error("Invalid private key format")
+        private_key = creds_dict.get('private_key', '')
+        if not private_key:
+            logger.error("Private key is empty")
+            return False
+        
+        # Clean up private key format if needed
+        private_key = private_key.replace('\\n', '\n')
+        if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+            logger.error("Invalid private key format - missing header")
+            return False
+        if not private_key.strip().endswith('-----END PRIVATE KEY-----'):
+            logger.error("Invalid private key format - missing footer")
             return False
             
         # Validate project ID format
@@ -173,12 +183,17 @@ def validate_google_credentials(creds_dict: dict) -> bool:
             return False
             
         # Validate client email format
-        if not creds_dict['client_email'] or '@' not in creds_dict['client_email'] or not creds_dict['client_email'].endswith('.gserviceaccount.com'):
-            logger.error("Invalid client email format - must be a valid service account email")
+        if not creds_dict['client_email'] or '@' not in creds_dict['client_email']:
+            logger.error("Invalid client email format")
+            return False
+        if not creds_dict['client_email'].endswith('.iam.gserviceaccount.com'):
+            logger.error("Invalid service account email domain")
             return False
             
         # Validate URIs
-        if not creds_dict['auth_uri'].startswith('https://') or not creds_dict['token_uri'].startswith('https://'):
+        auth_uri = creds_dict.get('auth_uri', '')
+        token_uri = creds_dict.get('token_uri', '')
+        if not auth_uri.startswith('https://') or not token_uri.startswith('https://'):
             logger.error("Invalid auth_uri or token_uri format")
             return False
             
@@ -194,12 +209,14 @@ def validate_google_credentials(creds_dict: dict) -> bool:
             if not test_creds.valid:
                 logger.error("Credentials validation failed - invalid format")
                 return False
+                
+            logger.info("✓ Credentials format validation passed")
+            return True
+            
         except Exception as e:
-            logger.error(f"Failed to create test credentials: {e}")
+            logger.error(f"Failed to create test credentials: {str(e)}")
             return False
             
-        logger.info("✓ Credentials validation passed all checks")
-        return True
     except Exception as e:
         logger.error(f"Error validating credentials: {str(e)}")
         return False
@@ -214,44 +231,29 @@ try:
             
             # If the value is a dict with a 'value' key (Railway format), extract the value
             try:
+                # First, try to parse as a regular JSON
                 creds_dict = json.loads(creds_json)
-                if isinstance(creds_dict, dict) and 'value' in creds_dict:
-                    creds_json = creds_dict['value']
-            except:
-                pass  # If this fails, continue with original string
-            
-            # Try parsing with different methods
-            try:
-                # First try normal parsing
-                creds_dict = json.loads(creds_json)
+                logger.info("Successfully parsed credentials JSON directly")
             except json.JSONDecodeError:
                 try:
-                    # Try removing quotes and escapes
-                    cleaned_json = creds_json.strip('"\'').replace('\\"', '"')
+                    # If direct parsing fails, try cleaning the string
+                    cleaned_json = creds_json.encode('utf-8').decode('unicode_escape')
+                    cleaned_json = cleaned_json.strip('"\'')  # Remove outer quotes
+                    cleaned_json = re.sub(r'\\+n', '\n', cleaned_json)  # Fix newlines
+                    cleaned_json = re.sub(r'\\+', '\\', cleaned_json)  # Fix escapes
+                    
+                    logger.info("Attempting to parse cleaned credentials JSON")
                     creds_dict = json.loads(cleaned_json)
-                except json.JSONDecodeError:
-                    try:
-                        # Try with strict=False
-                        creds_dict = json.loads(creds_json, strict=False)
-                    except json.JSONDecodeError as je:
-                        # If still failing, try more aggressive cleaning
-                        cleaned_json = creds_json.encode().decode('unicode_escape')
-                        cleaned_json = cleaned_json.strip('"\'')
-                        # Remove any duplicate backslashes
-                        cleaned_json = re.sub(r'\\+', r'\\', cleaned_json)
-                        try:
-                            creds_dict = json.loads(cleaned_json, strict=False)
-                        except json.JSONDecodeError as final_je:
-                            logger.error("✗ All JSON parsing attempts failed")
-                            logger.error(f"Original JSON string: {creds_json[:100]}...")
-                            logger.error(f"Cleaned JSON string: {cleaned_json[:100]}...")
-                            raise final_je
+                except Exception as e:
+                    logger.error(f"Failed to parse credentials JSON after cleaning: {str(e)}")
+                    raise
             
             logger.info("✓ JSON credentials parsed successfully")
             
             # Validate credentials
             if not validate_google_credentials(creds_dict):
-                raise ValueError("Invalid credentials format")
+                logger.error("Credentials validation failed - check the service account permissions")
+                raise ValueError("Invalid credentials format - please verify the service account has proper permissions")
             
             # Create credentials directory if it doesn't exist
             credentials_dir = '/app/credentials'
@@ -263,40 +265,22 @@ try:
                 json.dump(creds_dict, f, indent=2)
             logger.info(f"Credentials file created successfully at {credentials_path}")
             
-            # Create credentials object directly from dictionary
+            # Create credentials object with explicit scopes
             credentials = service_account.Credentials.from_service_account_info(
                 creds_dict,
                 scopes=[
                     'https://www.googleapis.com/auth/cloud-platform',
                     'https://www.googleapis.com/auth/cloud-texttospeech'
                 ]
-            ).with_quota_project(creds_dict['project_id'])
-            
-            # Set the environment variable for Application Default Credentials
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-            
-            # Initialize TTS client
-            tts_client = texttospeech.TextToSpeechClient(
-                credentials=credentials.with_scopes([
-                    'https://www.googleapis.com/auth/cloud-platform',
-                    'https://www.googleapis.com/auth/cloud-texttospeech'
-                ]),
-                client_options={
-                    "api_endpoint": "texttospeech.googleapis.com",
-                    "quota_project_id": creds_dict['project_id']
-                }
             )
             
-            # Test the client with better error handling
+            # Test the credentials by creating a minimal client
             try:
-                voices = tts_client.list_voices()
-                voice_count = len(voices.voices) if voices and hasattr(voices, 'voices') else 0
-                logger.info(f"✓ TTS client initialized and tested successfully. Found {voice_count} voices.")
-            except Unauthenticated as auth_error:
-                logger.error(f"Authentication failed: {auth_error}")
-                raise Exception(f"TTS client authentication failed: {auth_error}")
+                test_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                test_client.list_voices()  # Test API access
+                logger.info("✓ Credentials validated successfully with API test")
             except Exception as e:
-                logger.error(f"Failed to test TTS client: {e}")
+                logger.error(f"Failed to validate credentials with API test: {str(e)}")
                 raise
             
         except json.JSONDecodeError as je:
