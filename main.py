@@ -452,8 +452,7 @@ class TwitterVideoProcessor:
         """Download tweet video and extract metadata."""
         try:
             self.context["stage"] = "downloading"
-            logger.info("Starting processing...")
-            logger.info("Test 1: Testing tweet download...")
+            logger.info("Starting download...")
 
             # Create downloads directory inside temp_dir
             downloads_dir = os.path.join(self.temp_dir, "downloads")
@@ -466,75 +465,31 @@ class TwitterVideoProcessor:
             tweet_id = url.split('/')[-1].split('?')[0]
             logger.info(f"Extracted tweet ID: {tweet_id}")
 
-            # First try with API v2 endpoint
-            api_url = f"https://api.twitter.com/2/tweets/{tweet_id}?expansions=attachments.media_keys&media.fields=variants,url,type"
-            headers = {
-                'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs=1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'x-guest-token': None
-            }
-
-            # Get guest token
-            try:
-                guest_token_url = 'https://api.twitter.com/1.1/guest/activate.json'
-                guest_token_response = requests.post(guest_token_url, headers={'Authorization': headers['Authorization']})
-                if guest_token_response.status_code == 200:
-                    headers['x-guest-token'] = guest_token_response.json().get('guest_token')
-                    logger.info("Successfully obtained guest token")
-            except Exception as e:
-                logger.warning(f"Failed to get guest token: {e}")
-
-            # Configure yt-dlp with updated settings
+            # Configure yt-dlp with minimal settings
             options = {
                 'outtmpl': os.path.join(downloads_dir, '%(id)s.%(ext)s'),
-                'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+                'format': 'best[ext=mp4]/best',
                 'merge_output_format': 'mp4',
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {
-                    'twitter': {
-                        'api': ['graphql', 'syndication', 'api'],
-                    }
-                },
-                'http_headers': headers,
-                'cookiesfrombrowser': ('chrome',),  # Try to use Chrome cookies if available
+                'extract_flat': True,
                 'socket_timeout': 30,
                 'retries': 10,
-                'fragment_retries': 10,
-                'retry_sleep_functions': {'http': lambda n: 1 + n * 2},  # Exponential backoff
+                'fragment_retries': 10
             }
 
             try:
                 with yt_dlp.YoutubeDL(options) as ydl:
-                    # Try direct download first
-                    try:
-                        info = ydl.extract_info(url, download=True)
-                    except Exception as e:
-                        logger.warning(f"Direct download failed, trying with syndication API: {e}")
-                        # Try with syndication API
-                        options['extractor_args']['twitter']['api'] = ['syndication']
-                        info = ydl.extract_info(url, download=True)
-
+                    logger.info("Downloading video...")
+                    info = ydl.extract_info(url, download=True)
                     video_filename = ydl.prepare_filename(info)
                     video_filename = os.path.splitext(video_filename)[0] + ".mp4"
-
-                    # Get tweet text from info or API
-                    tweet_text = info.get('description', '')
-                    if not tweet_text:
-                        try:
-                            tweet_response = requests.get(api_url, headers=headers)
-                            if tweet_response.status_code == 200:
-                                tweet_data = tweet_response.json()
-                                tweet_text = tweet_data.get('data', {}).get('text', 'No text found')
-                        except Exception as e:
-                            logger.warning(f"Failed to get tweet text from API: {e}")
-                            tweet_text = "No text found"
-
+                    
                     # Store the paths and metadata in context
                     self.context["video_path"] = video_filename
-                    self.context["tweet_text"] = tweet_text
+                    self.context["tweet_text"] = info.get('description', 'No text found')
                     logger.info(f"Downloaded video: {video_filename}")
-                    logger.info(f"Tweet text: {tweet_text}")
+                    logger.info(f"Tweet text: {self.context['tweet_text']}")
 
                     return True
 
@@ -542,30 +497,11 @@ class TwitterVideoProcessor:
                 error_message = str(e)
                 logger.error(f"Download failed: {error_message}")
                 
-                # Try one last time with minimal options
-                try:
-                    logger.info("Attempting final download method...")
-                    minimal_options = {
-                        'outtmpl': os.path.join(downloads_dir, '%(id)s.%(ext)s'),
-                        'format': 'best[ext=mp4]/best',
-                        'quiet': True,
-                    }
-                    with yt_dlp.YoutubeDL(minimal_options) as ydl:
-                        info = ydl.extract_info(url, download=True)
-                        video_filename = ydl.prepare_filename(info)
-                        video_filename = os.path.splitext(video_filename)[0] + ".mp4"
-                        
-                        self.context["video_path"] = video_filename
-                        self.context["tweet_text"] = info.get('description', 'No text found')
-                        logger.info("Final download method successful")
-                        return True
-                except Exception as final_e:
-                    logger.error(f"Final download method failed: {final_e}")
-                    if "Unable to extract uploader id" in str(final_e):
-                        await message_obj.edit_text("⚠️ This tweet might be from a private account or has been deleted.")
-                    else:
-                        await message_obj.edit_text("⚠️ Failed to download the video. The tweet might be unavailable or protected.")
-                    return False
+                if "Unable to extract uploader id" in error_message:
+                    await message_obj.edit_text("⚠️ This tweet might be from a private account or has been deleted.")
+                else:
+                    await message_obj.edit_text("⚠️ Failed to download the video. The tweet might be unavailable or protected.")
+                return False
 
         except Exception as e:
             logger.error(f"Processing error: {str(e)}", exc_info=True)
