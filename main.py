@@ -256,27 +256,20 @@ try:
                     'https://www.googleapis.com/auth/cloud-texttospeech'
                 ]
             )
-            logger.info("✓ Credentials object created successfully")
-            
-            # Initialize client with credentials
-            logger.info("Initializing Text-to-Speech client...")
-            client_options = texttospeech.ClientOptions(
-                api_endpoint="texttospeech.googleapis.com",
-                quota_project_id=creds_dict['project_id']
-            )
-            logger.info(f"Client options: {client_options}")
-            
-            tts_client = texttospeech.TextToSpeechClient(
+            self.tts_client = texttospeech.TextToSpeechClient(
                 credentials=credentials,
-                client_options=client_options
+                client_options={
+                "api_endpoint": "texttospeech.googleapis.com",
+                "quota_project_id": creds_dict['project_id']
+            }
             )
-            logger.info("✓ Text-to-Speech client created")
+            logger.info("✓ Credentials object created successfully")
             
             # Test the credentials with a simple API call
             try:
                 logger.info("Testing credentials with list_voices API call...")
                 request = texttospeech.ListVoicesRequest()
-                voices = tts_client.list_voices(request=request)
+                voices = self.tts_client.list_voices(request=request)
                 logger.info(f"✓ API test successful, found {len(voices.voices)} voices")
                 logger.info("✓ Google Cloud TTS client initialized and verified successfully")
             except Exception as e:
@@ -287,17 +280,15 @@ try:
                     credentials_path,
                     scopes=['https://www.googleapis.com/auth/cloud-platform']
                 )
-                logger.info("✓ File-based credentials created")
-                
-                tts_client = texttospeech.TextToSpeechClient(
+                self.tts_client = texttospeech.TextToSpeechClient(
                     credentials=credentials,
-                    client_options=client_options
+                    client_options={
+                        "api_endpoint": "texttospeech.googleapis.com",
+                        "quota_project_id": creds_dict['project_id']
+                    }
                 )
-                logger.info("✓ New Text-to-Speech client created")
-                
-                request = texttospeech.ListVoicesRequest()
-                voices = tts_client.list_voices(request=request)
-                logger.info(f"✓ API test successful with file-based credentials, found {len(voices.voices)} voices")
+                self.tts_client.list_voices()
+                logger.info("✓ API test successful with file-based credentials, found {len(voices.voices)} voices")
                 logger.info("✓ Google Cloud TTS client initialized with file-based credentials")
             
         except json.JSONDecodeError as je:
@@ -312,9 +303,9 @@ try:
         if os.path.exists(credentials_path):
             try:
                 credentials = service_account.Credentials.from_service_account_file(credentials_path)
-                tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
+                self.tts_client = texttospeech.TextToSpeechClient(credentials=credentials)
                 # Verify credentials
-                voices = tts_client.list_voices()
+                voices = self.tts_client.list_voices()
                 logger.info("✓ Google Cloud TTS client initialized from credentials file")
             except Exception as e:
                 logger.error(f"✗ Failed to initialize from credentials file: {str(e)}")
