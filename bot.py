@@ -16,6 +16,9 @@ from concurrent.futures import ThreadPoolExecutor
 import psutil
 import logging.handlers
 import json
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -129,6 +132,7 @@ class ResourceManager:
         self.output_dir = output_dir
         self.temp_files = set()
         self.temp_dirs = set()
+        self.cloudinary_resources = set()
         
     def register_temp_file(self, file_path: Path):
         """Register a temporary file for cleanup."""
@@ -138,11 +142,16 @@ class ResourceManager:
         """Register a temporary directory for cleanup."""
         self.temp_dirs.add(dir_path)
         
+    def register_cloudinary_resource(self, public_id: str):
+        """Register a Cloudinary resource for cleanup."""
+        self.cloudinary_resources.add(public_id)
+        
     def cleanup_temp_file(self, file_path: Path):
         """Clean up a temporary file if it exists."""
         try:
             if file_path.exists():
                 file_path.unlink()
+                logger.info(f"Cleaned up temp file: {file_path}")
                 self.temp_files.discard(file_path)
         except Exception as e:
             logger.warning(f"Failed to cleanup temp file {file_path}: {e}")
@@ -152,16 +161,36 @@ class ResourceManager:
         try:
             if dir_path.exists():
                 shutil.rmtree(dir_path)
+                logger.info(f"Cleaned up temp directory: {dir_path}")
                 self.temp_dirs.discard(dir_path)
         except Exception as e:
             logger.warning(f"Failed to cleanup temp dir {dir_path}: {e}")
+            
+    def cleanup_cloudinary_resources(self):
+        """Clean up all registered Cloudinary resources."""
+        for public_id in self.cloudinary_resources:
+            try:
+                cloudinary.uploader.destroy(public_id)
+                logger.info(f"Cleaned up Cloudinary resource: {public_id}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup Cloudinary resource {public_id}: {e}")
+        self.cloudinary_resources.clear()
     
     def cleanup_all(self):
-        """Clean up all temporary files and directories."""
+        """Clean up all temporary files, directories and cloud resources."""
+        # First cleanup Cloudinary resources
+        self.cleanup_cloudinary_resources()
+        
+        # Then cleanup local files
         for file_path in list(self.temp_files):
             self.cleanup_temp_file(file_path)
+            
+        # Finally cleanup directories
         for dir_path in list(self.temp_dirs):
             self.cleanup_temp_dir(dir_path)
+            
+        # Log cleanup completion
+        logger.info(f"Completed cleanup for output directory: {self.output_dir}")
 
 async def cleanup_old_processes():
     """Periodically clean up completed or stale processes and manage resources."""
@@ -385,7 +414,7 @@ async def process_video(
         
         # Add video text to metadata
         metadata['description'] = video_text
-        metadata['title'] = video_title or video_text.split('\n')[0]  # Use first line as title if no video title
+        metadata['title'] = video_title or video_text.split('\n')[0]
         
         # Step 2: Extract frames
         status.current_step = 2
@@ -410,7 +439,7 @@ async def process_video(
             lambda: Step_3_analyze_frames.execute_step(
                 frames_dir=frames_dir,
                 output_dir=output_dir,
-                metadata=metadata,  # Now includes video description
+                metadata=metadata,
                 scene_changes=scene_changes,
                 motion_scores=motion_scores,
                 video_duration=metadata.get('duration', 0)
@@ -432,6 +461,9 @@ async def process_video(
                 style=style_map[style_name]
             )
         )
+        
+        # Log the generated commentary
+        logger.info(f"Generated Commentary for user {user_id}:\n{commentary}")
         
         # Step 5: Generate audio
         status.current_step = 5
@@ -467,16 +499,17 @@ async def process_video(
                     status.current_step = 7
                     await update_status_message(update.message, status, "Finishing Up", "complete")
                     
-                    # Send the final video
-                    await update.message.reply_video(
-                        video=open(final_video, 'rb'),
-                        caption=f"✨ Here's your video with {style_name} style commentary!\n\nBased on: {video_text[:100]}...",
-                        supports_streaming=True
-                    )
-                    
-                    # Final cleanup
-                    resource_manager.cleanup_all()
-                    return
+                    try:
+                        # Send the final video
+                        await update.message.reply_video(
+                            video=open(final_video, 'rb'),
+                            caption=f"✨ Here's your video with {style_name} style commentary!\n\nBased on: {video_text[:100]}...",
+                            supports_streaming=True
+                        )
+                    finally:
+                        # Ensure cleanup happens after video is sent
+                        resource_manager.cleanup_all()
+                        return
                     
         await update.message.reply_text("❌ Failed to generate video. Please try again.")
         
