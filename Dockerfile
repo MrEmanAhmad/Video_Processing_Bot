@@ -31,8 +31,9 @@ WORKDIR /app
 # Copy the entire application
 COPY . .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with HTTP/2 support
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir "httpx[http2]" "python-telegram-bot[http2]"
 
 # Ensure proper package structure
 RUN python -m pip install -e .
@@ -47,4 +48,4 @@ RUN mkdir -p credentials && \
     python -c "from pipeline.Step_4_generate_commentary import CommentaryStyle; print('Package verified successfully')"
 
 # Command to run the bot
-CMD ["python", "bot.py"] 
+CMD ["python", "-m", "bot"] 

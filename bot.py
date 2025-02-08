@@ -98,7 +98,10 @@ def set_worker_priority():
     try:
         import psutil
         current_process = psutil.Process()
-        current_process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        if os.name == 'nt':  # Windows
+            current_process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+        else:  # Linux/Unix
+            current_process.nice(10)  # Nice value between -20 and 19, higher means lower priority
     except Exception as e:
         logger.warning(f"Could not set worker priority: {e}")
 
@@ -613,11 +616,14 @@ if __name__ == '__main__':
             logger.error("Failed to setup Google credentials. Exiting...")
             exit(1)
         
-        # Set process priority (Windows-compatible)
+        # Set process priority (cross-platform)
         try:
             import psutil
             current_process = psutil.Process()
-            current_process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            if os.name == 'nt':  # Windows
+                current_process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+            else:  # Linux/Unix
+                current_process.nice(10)
         except Exception as e:
             logger.warning(f"Could not set process priority: {e}")
         
