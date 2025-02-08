@@ -3,7 +3,11 @@ from setuptools import setup, find_packages
 setup(
     name="video-processing-bot",
     version="1.0.0",
-    packages=find_packages(),
+    packages=find_packages(include=['pipeline', 'pipeline.*']),
+    package_data={
+        'pipeline': ['*.py'],
+    },
+    include_package_data=True,
     install_requires=[
         'openai>=1.0.0',
         'python-dotenv>=0.19.0',
