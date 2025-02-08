@@ -25,6 +25,13 @@ class VideoDownloader:
         """
         self.output_dir = output_dir
         
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL to ensure compatibility."""
+        # Convert x.com to twitter.com
+        if 'x.com' in url:
+            url = url.replace('x.com', 'twitter.com')
+        return url
+        
     def _sanitize_filename(self, title: str) -> str:
         """
         Sanitize the filename to remove problematic characters.
@@ -72,7 +79,8 @@ class VideoDownloader:
             'postprocessors': [{
                 'key': 'FFmpegVideoRemuxer',
                 'preferedformat': 'mp4'
-            }]
+            }],
+            'compat_opts': ['no-youtube-unavailable-videos']
         }
     
     def _progress_hook(self, d: Dict[str, Any]) -> None:
@@ -101,6 +109,8 @@ class VideoDownloader:
             - Video title (str or None)
         """
         try:
+            # Normalize URL first
+            url = self._normalize_url(url)
             logger.info(f"Downloading video from: {url}")
             
             with yt_dlp.YoutubeDL(self._get_ydl_opts()) as ydl:
