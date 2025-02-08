@@ -4,7 +4,8 @@ FROM python:3.10-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
 
 # Install system dependencies and Chrome
 RUN apt-get update && apt-get install -y \
@@ -32,6 +33,9 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the pipeline package first
+COPY pipeline ./pipeline/
+
 # Copy the rest of the application
 COPY . .
 
@@ -41,5 +45,8 @@ RUN mkdir -p credentials && \
     mkdir -p /root/.config/google-chrome && \
     chmod -R 777 credentials analysis_temp /root/.config/google-chrome
 
+# Initialize Python package
+RUN touch pipeline/__init__.py
+
 # Command to run the bot
-CMD ["python", "bot.py"] 
+CMD ["python", "-m", "bot"] 
