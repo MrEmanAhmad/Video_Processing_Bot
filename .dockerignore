@@ -1,7 +1,6 @@
 # Git
 .git
 .gitignore
-.gitattributes
 
 # Python
 __pycache__/
@@ -21,16 +20,14 @@ lib64/
 parts/
 sdist/
 var/
-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
 # Virtual Environment
-.env
-.venv
 venv/
 ENV/
+.env
 
 # IDE
 .idea/
@@ -38,23 +35,14 @@ ENV/
 *.swp
 *.swo
 
-# Logs
+# Project specific
+credentials/
+analysis_*/
 *.log
-
-# Test outputs and processed videos
-test_outputs/
-processed_videos/
-
-# Documentation
-README.md
-LICENSE
-*.md
+temp_*/
+bot.log*
 
 # Docker
+.docker
 Dockerfile
-.dockerignore
-
-# Temporary files
-tmp/
-temp/
-.DS_Store 
+docker-compose.yml 

@@ -21,7 +21,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 from dotenv import load_dotenv
 
-from pipeline.Step_4_generate_commentary import CommentaryStyle
+import pipeline.Step_4_generate_commentary as commentary
 from pipeline import (
     Step_1_download_video,
     Step_2_extract_frames,
@@ -31,6 +31,8 @@ from pipeline import (
     Step_6_video_generation,
     Step_7_cleanup
 )
+
+CommentaryStyle = commentary.CommentaryStyle
 
 # Load environment variables
 load_dotenv()

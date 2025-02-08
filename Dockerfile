@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     wget \
     gnupg \
+    git \
     && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list \
     && apt-get update \
@@ -27,26 +28,23 @@ ENV DISPLAY=:99
 # Set working directory
 WORKDIR /app
 
-# Copy requirements first to leverage Docker cache
-COPY requirements.txt .
+# Copy the entire application
+COPY . .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the pipeline package first
-COPY pipeline ./pipeline/
+# Ensure proper package structure
+RUN python -m pip install -e .
 
-# Copy the rest of the application
-COPY . .
-
-# Create necessary directories
+# Create necessary directories and set permissions
 RUN mkdir -p credentials && \
     mkdir -p analysis_temp && \
     mkdir -p /root/.config/google-chrome && \
-    chmod -R 777 credentials analysis_temp /root/.config/google-chrome
-
-# Initialize Python package
-RUN touch pipeline/__init__.py
+    chmod -R 777 credentials analysis_temp /root/.config/google-chrome && \
+    chmod -R 755 pipeline && \
+    # Verify package installation
+    python -c "from pipeline.Step_4_generate_commentary import CommentaryStyle; print('Package verified successfully')"
 
 # Command to run the bot
-CMD ["python", "-m", "bot"] 
+CMD ["python", "bot.py"] 
